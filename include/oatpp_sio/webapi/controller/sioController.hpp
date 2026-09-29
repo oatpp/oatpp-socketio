@@ -77,7 +77,7 @@ class SocketIoController : public oatpp::web::server::api::ApiController
         info->queryParams.add<String>("transport").description =
             "transport method (polling)";
     }
-    ENDPOINT_ASYNC("GET", prefix + "/*", SioGet)
+    ENDPOINT_ASYNC("GET", prefix + String("/*"), SioGet)
     {
         ENDPOINT_ASYNC_INIT(SioGet);
 
@@ -246,7 +246,7 @@ class SocketIoController : public oatpp::web::server::api::ApiController
         }
     };
 
-    ENDPOINT_ASYNC("POST", prefix + "/*", SioPost)
+    ENDPOINT_ASYNC("POST", prefix + String("/*"), SioPost)
     {
         ENDPOINT_ASYNC_INIT(SioPost);
 
@@ -305,7 +305,7 @@ class SocketIoController : public oatpp::web::server::api::ApiController
     };
 
     // make the test-suite happy (otherwise we report 404)
-    ENDPOINT_ASYNC("PUT", prefix + "/*", SioPut)
+    ENDPOINT_ASYNC("PUT", prefix + String("/*"), SioPut)
     {
         ENDPOINT_ASYNC_INIT(SioPut);
 
