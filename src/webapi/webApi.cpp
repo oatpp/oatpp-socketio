@@ -18,7 +18,9 @@
 #include <iostream>
 #include <thread>
 
+#include "oatpp/async/Executor.hpp"
 #include "oatpp/network/Server.hpp"
+#include "oatpp/network/tcp/client/ConnectionProvider.hpp"
 
 #include "oatpp-swagger/AsyncController.hpp"
 #include "oatpp-swagger/Controller.hpp"
@@ -31,13 +33,25 @@
 #include "oatpp_sio/webapi/swaggerComponent.hpp"
 #include "oatpp_sio/webapi/webApp.hpp"
 
+#include <condition_variable>
 #include <cstdlib>
+#include <functional>
+#include <memory>
+#include <mutex>
 
 // #include "oatpp_sio/globals.hpp"
 
 static oatpp::network::Server *theServer = nullptr;
+static std::shared_ptr<oatpp::network::ServerConnectionProvider> theConnectionProvider;
 static std::thread *runner = nullptr;
 static oatpp_sio::WebApiState *systemState = nullptr;
+
+/* startup handshake: webApiStop() must not race with the runner thread
+ * bringing the server up */
+static std::mutex startupMutex;
+static std::condition_variable startupCv;
+static bool serverUp = false;
+static bool stopRequested = false;
 
 using namespace std;
 
@@ -106,13 +120,32 @@ class WebApi
      * HTTP connection handler */
         oatpp::network::Server server(connectionProvider, connectionHandler);
         theServer = &server;
+        theConnectionProvider = connectionProvider;
+
+        {
+            std::lock_guard<std::mutex> guard(startupMutex);
+            serverUp = true;
+            if (stopRequested) {
+                // stop() was called before we got up and running - do not
+                // enter the (blocking) accept loop at all
+                OATPP_LOGi("WEBAPI", "stop requested before startup");
+                theServer = nullptr;
+                theConnectionProvider.reset();
+                return;
+            }
+        }
+        startupCv.notify_all();
 
         /* Print info about server port */
         OATPP_LOGi("WEBAPI", "Server running on port {}",
                    connectionProvider->getProperty("port").toString());
 
-        /* Run server */
-        server.run();
+        /* Run server. The condition is re-checked before every accept, so a
+         * stopRequested that raced with the startup still stops the loop
+         * instead of blocking in accept() forever. The explicit std::function
+         * avoids the deprecated run(bool) overload. */
+        const std::function<bool()> stillRunning = [] { return !stopRequested; };
+        server.run(stillRunning);
 
         OATPP_LOGi("WEBAPI", "Server stopped on port {}",
                    connectionProvider->getProperty("port").toString());
@@ -169,12 +202,40 @@ void webApiStart(oatpp_sio::WebApiState &state)
 
 void webApiStop()
 {
-    // has to be called from the thread that owns the server, and only after
-    // webApiStart() - stopping before the server is up cannot work
+    {
+        std::unique_lock<std::mutex> lock(startupMutex);
+        stopRequested = true;
+        if (!serverUp) {
+            // give the runner thread a moment to publish the server (or to
+            // notice that it must not start it at all)
+            startupCv.wait_for(lock, std::chrono::seconds(5),
+                               [] { return serverUp; });
+        }
+    }
+
     if (theServer) {
         theServer->stop();
-        theServer = nullptr;
+
+        // Server::stop() only sets a status flag. The server thread sits in
+        // accept(), which does not return when the status changes - and on
+        // Linux closing the listening socket does not reliably wake it
+        // either. One connection makes the accept return, the main loop then
+        // sees the new status and leaves, which unblocks the join below.
+        try {
+            auto poke = oatpp::network::tcp::client::ConnectionProvider::createShared(
+                {"127.0.0.1", getListenPort(), oatpp::network::Address::IP_4});
+            poke->get();
+        } catch (const std::exception& e) {
+            OATPP_LOGd("WEBAPI", "could not wake the accept loop: {}", e.what());
+        }
     }
+
+    if (theConnectionProvider) {
+        theConnectionProvider->stop();
+    }
+
+    theServer = nullptr;
+    theConnectionProvider.reset();
 
     if (runner) {
         if (runner->joinable()) {
@@ -183,6 +244,36 @@ void webApiStop()
         delete runner;
         runner = nullptr;
     }
+}
+
+void webApiDestroy()
+{
+    if (api == nullptr) {
+        return;
+    }
+
+    // stop the executors the components created before they are destroyed -
+    // ~Executor() on a running executor aborts the process
+    const auto stopExecutor = [](const std::shared_ptr<oatpp::async::Executor>& executor) {
+        if (executor) {
+            executor->stop();
+            executor->join();
+        }
+    };
+
+    {
+        OATPP_COMPONENT(std::shared_ptr<oatpp::async::Executor>, httpExecutor, "http");
+        stopExecutor(httpExecutor);
+    }
+    {
+        OATPP_COMPONENT(std::shared_ptr<oatpp::async::Executor>, wsExecutor, "ws");
+        stopExecutor(wsExecutor);
+    }
+
+    // destroys the AppComponent, which unregisters the oatpp components so
+    // that oatpp::Environment::destroy() no longer sees them as leaking
+    delete api;
+    api = nullptr;
 }
 
 std::string getListenHost()

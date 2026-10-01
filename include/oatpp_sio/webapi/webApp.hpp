@@ -54,7 +54,15 @@ extern unsigned short getListenPort();
 /** start the actual oapp web frontend in it's own thread. webApiInit() must have been called first. */
 extern void webApiStart(WebApiState& state);
 
+/** stop the web frontend (see webApiStop() in webApi.cpp for the caveats) */
 extern void webApiStop();
+
+/**
+ * Release everything webApiInit() created: stops the executors and destroys
+ * the component container, which unregisters the oatpp components.
+ * Call after webApiStop() and before oatpp::Environment::destroy().
+ */
+extern void webApiDestroy();
 
 }  // namespace webapi
 }  // namespace oatpp_sio

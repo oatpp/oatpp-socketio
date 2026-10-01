@@ -15,10 +15,14 @@
 */
 #include <stdlib.h>
 
+#include "StopSignal.hpp"
+
 #include <chrono>
 #include <iostream>
 #include <string>
 #include <thread>
+
+#include "oatpp/Environment.hpp"
 
 #include "oatpp_sio/webapi/webApp.hpp"
 #include "oatpp_sio/sio/space.hpp"
@@ -81,18 +85,22 @@ int main(int argc, const char* argv[])
 
     // DONE INIT
 
-    bool keepRunning = true;
-    int delay = 1;
-    do {
-        const auto start = std::chrono::high_resolution_clock::now();
-        std::this_thread::sleep_for(2000ms);
-        const auto end = std::chrono::high_resolution_clock::now();
-        const std::chrono::duration<double, std::milli> elapsed = end - start;
-
-    } while (keepRunning);
+    // run until Ctrl-C or SIGTERM
+    oatpp_sio::app::installStopSignals();
+    cout << "running, press Ctrl-C to stop" << endl;
+    oatpp_sio::app::waitForStop();
 
     cout << "stopping" << endl;
     webApiStop();
+
+    cout << "\nEnvironment:\n";
+    cout << "objectsCount = " << oatpp::Environment::getObjectsCount() << "\n";
+    cout << "objectsCreated = " << oatpp::Environment::getObjectsCreated()
+         << "\n\n";
+
+    webApiDestroy();
+    oatpp::Environment::destroy();
+
     cout << "done" << endl;
 
     return 0;
