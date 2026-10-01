@@ -35,7 +35,6 @@ int main(int argc, const char* argv[])
     cout << "starting" << endl;
     std::string confFile = "blah.xml";
 
-    srand(0xfacebabe);
 
     for (int i = 1; i < argc; i++) {
         if (string(argv[i]) == "-c") {

@@ -17,12 +17,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(sio_unit_tests
     EioPacketTest
+    UtilTest
 )
 
 add_executable(sio-unit-tests
     TestRunner.cpp
     unit/TestMain.cpp
     unit/EioPacketTest.cpp
+    unit/UtilTest.cpp
 )
 
 target_include_directories(sio-unit-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
