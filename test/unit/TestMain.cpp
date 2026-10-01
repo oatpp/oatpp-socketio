@@ -15,9 +15,13 @@
 #include "oatpp/macro/component.hpp"
 
 #include "unit/EioPacketTest.hpp"
+#include "unit/SioServerTest.hpp"
+#include "unit/SpaceTest.hpp"
 #include "unit/UtilTest.hpp"
 
 SIO_REGISTER_TEST(EioPacketTest, EioPacketTest);
+SIO_REGISTER_TEST(SioServerTest, SioServerTest);
+SIO_REGISTER_TEST(SpaceTest, SpaceTest);
 SIO_REGISTER_TEST(UtilTest, UtilTest);
 
 int main(int argc, const char* argv[]) {

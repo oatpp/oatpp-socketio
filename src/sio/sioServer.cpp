@@ -1,5 +1,4 @@
 #include "oatpp_sio/sio/sioServer.hpp"
-#include "oatpp_sio/util.hpp"
 
 using namespace oatpp_sio::sio;
 
@@ -61,7 +60,12 @@ bool SioServer::connectToSpace(const std::string& spaceName,
     // @TODO: AUTH connection here...
     bool authed = true;
     if (authed) {
-        sioId = generateRandomString(SID_LENGTH);
+        // The space keys its subscriptions by listener id, so the id handed
+        // back to the client must be that id. It used to be a fresh random
+        // string, which no subscription was stored under: leaveSpace() could
+        // never find the entry again and spaces filled up with listeners of
+        // long-gone clients.
+        sioId = listener->id();
         space->addListener(listener);
         listener->subscribed(space);
     }
@@ -70,16 +74,24 @@ bool SioServer::connectToSpace(const std::string& spaceName,
 
 bool SioServer::leaveSpace(const std::string& spaceName, std::string& sioId)
 {
-    Space::Ptr space = getSpace(spaceName);
-    if (!space.get()) {
+    // lookup only - getSpace() would auto-create the space we want to leave
+    auto iter = mySpaces.find(spaceName);
+    if (iter == mySpaces.end()) {
         OATPP_LOGw("SioServer", "leaveSpace could not find {} ", spaceName);
         return false;
     }
-    space->removeListener(sioId);
+    Space::Ptr space = iter->second;
 
+    // notify before removing: getListener() cannot find it once it is gone
+    // (the old order made the left() callback dead code)
     auto listener = space->getListener(sioId);
-    if (listener.get()) {
-        listener->left(space);
+    if (!listener.get()) {
+        OATPP_LOGd("SioServer", "leaveSpace: {} is not a member of {}", sioId,
+                   spaceName);
+        return false;
     }
+
+    listener->left(space);
+    space->removeListener(sioId);
     return true;
 }

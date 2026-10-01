@@ -32,7 +32,6 @@ class SioServer
     static SioServer* universe;
     std::unordered_map<std::string, Space::Ptr> mySpaces;
 
-    const int SID_LENGTH = 6;  // number of characters for the session id
     const bool AUTOCREATE_SPACES = true; // create spaces on the fly
 
     SioServer();
