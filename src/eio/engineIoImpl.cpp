@@ -122,15 +122,6 @@ Engine::ResponsePtr EngineImpl::startLpConnection(
     return response;
 }
 
-std::string EngineImpl::pktEncode(EioPacketType pkt, const std::string& msg)
-{
-    std::string packet(msg.size() + 1,
-                       (char)(pkt));  // init with packet type
-    int len = msg.size();
-    memcpy(packet.data() + 1, msg.data(), len);
-    return packet;
-}
-
 std::string EngineImpl::generateSid()
 {
     std::string sid = generateRandomString(12);

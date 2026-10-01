@@ -42,15 +42,6 @@ void EioConnection::setSio(SioAdapterPtr adapter, Ptr self)
     adapter->eioConn = self;
 }
 
-std::string EioConnection::pktEncode(EioPacketType pkt, const std::string& msg)
-{
-    std::string packet(msg.size() + 1,
-                       (char)(pkt));  // init with packet type
-    int len = msg.size();
-    memcpy(packet.data() + 1, msg.data(), len);
-    return packet;
-}
-
 // from pool:
 void EioConnection::handleMessage(std::shared_ptr<Message> msg)
 {
@@ -394,7 +385,7 @@ void EioConnection::sendDelayedNoop(EioConnection::Ptr conn,
             }
             if (conn->longPollRequest.get()) {
                 if (dbg) OATPP_LOGi("EICO:NOOP", "{} sending..", sid);
-                conn->enqMsg(conn->pktEncode(eioNoop, ""));
+                conn->enqMsg(pktEncode(eioNoop, ""));
             }
             return finish();
         }
@@ -498,7 +489,7 @@ void EioConnection::checkPongTimeout(EioConnection::Ptr conn)
             }
             if (!conn->pongCount) {
                 if (dbg) OATPP_LOGi("EICO:PO", "{} NO Pong! - closing!", sid);
-                conn->enqMsg(conn->pktEncode(eioClose, ""));
+                conn->enqMsg(pktEncode(eioClose, ""));
                 return yieldTo(&TimeoutCoRo::shutdown);
             }
             conn->pongCount = 0;
