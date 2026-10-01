@@ -45,7 +45,13 @@ void EioConnection::setSio(SioAdapterPtr adapter, Ptr self)
 // from pool:
 void EioConnection::handleMessage(std::shared_ptr<Message> msg)
 {
-    handleMessageAsync(theEngine->getConnection(sid), msg);
+    auto conn = theEngine->getConnection(sid);
+    if (!conn.get()) {
+        // the connection was dropped while the message was on its way
+        OATPP_LOGw("EICO", "{} handleMessage: connection is gone", sid);
+        return;
+    }
+    handleMessageAsync(conn, msg);
 }
 
 // the synchronous part:
@@ -127,7 +133,12 @@ bool EioConnection::handleMessageFromWs(const std::string& body, bool isBinary)
 
 void EioConnection::handleEioMessage(const std::string& body, bool isBinary)
 {
-    char pType = body[0];
+    // an empty packet has no type byte - reading body[0] would be out of bounds
+    if (body.empty()) {
+        OATPP_LOGw("EICO", "{} empty engine.io packet, ignoring", sid);
+        return;
+    }
+    const char pType = pktType(body);
 
     // if (dbg)
     //     OATPP_LOGd("EICO", "{} handleEioMessage |{}| {} {} st {} pt {}", sid,
@@ -180,7 +191,7 @@ void EioConnection::handleEioMessage(const std::string& body, bool isBinary)
             if (dbg) OATPP_LOGd("EICO", "{} handleEioMessage msg", sid);
             // strip off header and forward data:
             auto msg = std::make_shared<Message>();
-            msg->body = std::string(body.data() + 1, body.size() - 1);
+            msg->body = pktPayload(body);
             msg->binary = false;
             if (sioFunnel.get()) {
                 sioFunnel->onEioMessage(msg);
@@ -190,8 +201,7 @@ void EioConnection::handleEioMessage(const std::string& body, bool isBinary)
             break;
         }
         case eioBinary: {
-            auto bin =
-                scrambler.decode(std::string(body.data() + 1, body.size() - 1));
+            auto bin = scrambler.decode(pktPayload(body));
             auto msg = std::make_shared<Message>();
             msg->body = bin;
             msg->binary = true;
@@ -346,6 +356,10 @@ void EioConnection::handleMessageAsync(EioConnection::Ptr conn,
                 // perform initial delay
                 first = false;
                 return waitRepeat(1 * std::chrono::milliseconds(delay));
+            }
+            if (!conn.get()) {
+                // connection dropped in the meantime
+                return finish();
             }
             conn->handleMessageReal(msg);
             return finish();
@@ -566,7 +580,9 @@ void EioConnection::scheduleDelayedPingMsg()
     };
     EioConnection::Ptr conn = theEngine->getConnection(sid);
     if (!conn.get()) {
-        OATPP_LOGi("EICO:PING", "NO CONN YET?!? Try next time....");
+        // do not go on: the coroutine below dereferences conn
+        OATPP_LOGi("EICO:PING", "{} no connection, not starting pinger", sid);
+        return;
     }
     OATPP_LOGd("EICO:SCHED", "{} START", sid);
 

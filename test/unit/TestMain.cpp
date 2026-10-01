@@ -15,12 +15,14 @@
 #include "oatpp/macro/component.hpp"
 
 #include "unit/EioPacketTest.hpp"
+#include "unit/EngineConfigTest.hpp"
 #include "unit/SioServerTest.hpp"
 #include "unit/SpaceTest.hpp"
 #include "unit/UtilTest.hpp"
 #include "unit/WireTest.hpp"
 
 SIO_REGISTER_TEST(EioPacketTest, EioPacketTest);
+SIO_REGISTER_TEST(EngineConfigTest, EngineConfigTest);
 SIO_REGISTER_TEST(SioServerTest, SioServerTest);
 SIO_REGISTER_TEST(SpaceTest, SpaceTest);
 SIO_REGISTER_TEST(UtilTest, UtilTest);

@@ -72,7 +72,7 @@ int main(int argc, const char* argv[])
     // INIT engine.io
 
     // // configure the engine.io stack for the test suite:
-    oatpp_sio::eio::theEngine->setConfig(300, 200, 1e6);
+    oatpp_sio::eio::theEngine->setConfig(25000, 20000, 1000000);
 
     // DONE INIT
 

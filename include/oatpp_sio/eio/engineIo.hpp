@@ -32,9 +32,14 @@ class Engine
     std::shared_ptr<oatpp_sio::eio::MessagePool> theSpace;
 
    public:
-    unsigned int pingInterval = 300 * 1000;
-    unsigned int pingTimeout = 200 * 1000;
-    unsigned int maxPayload = 1e6;
+    /** engine.io ping interval in milliseconds. It is advertised verbatim in
+     *  the OPEN packet and used as-is by the ping coroutine - socket.io
+     *  defaults are 25000 ms / 20000 ms. */
+    unsigned int pingInterval = 25000;
+    /** milliseconds to wait for a pong before the connection is dropped */
+    unsigned int pingTimeout = 20000;
+    /** maximum payload size in bytes, advertised to the client */
+    unsigned int maxPayload = 1000000;
     // todo: list of known connections here?
 
    public:  // convenience typedefs
@@ -43,6 +48,12 @@ class Engine
     Engine() : theSpace(std::make_shared<MessagePool>()) {}
     virtual ~Engine() {}
 
+    /**
+     * Configure the engine.
+     * @param interval ping interval in **milliseconds**.
+     * @param timeout ping timeout in **milliseconds**.
+     * @param maxSize maximum payload size in bytes.
+     */
     void setConfig(unsigned int interval, unsigned int timeout,
                    unsigned int maxSize)
     {

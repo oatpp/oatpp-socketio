@@ -69,7 +69,7 @@ int main(int argc, const char* argv[])
     // DONE INIT WEB FRONTEND
 
     // configure the engine.io stack for the test suite:
-    oatpp_sio::eio::theEngine->setConfig(1000, 500, 1e6);
+    oatpp_sio::eio::theEngine->setConfig(25000, 20000, 1000000);
     oatpp_sio::eio::theEngine->testMode = true;
 
     bool keepRunning = true;

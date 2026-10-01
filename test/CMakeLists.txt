@@ -17,6 +17,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(sio_unit_tests
     EioPacketTest
+    EngineConfigTest
     SioServerTest
     SpaceTest
     UtilTest
@@ -27,6 +28,7 @@ add_executable(sio-unit-tests
     TestRunner.cpp
     unit/TestMain.cpp
     unit/EioPacketTest.cpp
+    unit/EngineConfigTest.cpp
     unit/SioServerTest.cpp
     unit/SpaceTest.cpp
     unit/UtilTest.cpp
