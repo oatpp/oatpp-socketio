@@ -67,6 +67,11 @@ int main(int argc, const char* argv[])
     // start the web server thread
     webApiStart(getGlobalState());
 
+    std::cout << "web api on http://localhost:"
+              << oatpp_sio::webapi::getListenPort()
+              << " (swagger ui: /swagger/ui, openapi: /api-docs/oas-3.0.0.json)"
+              << std::endl;
+
     // DONE INIT WEB FRONTEND
 
     // INIT engine.io

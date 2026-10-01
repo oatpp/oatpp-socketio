@@ -66,6 +66,11 @@ int main(int argc, const char* argv[])
     // start the web server thread
     webApiStart(getGlobalState());
 
+    std::cout << "web api on http://localhost:"
+              << oatpp_sio::webapi::getListenPort()
+              << " (swagger ui: /swagger/ui, openapi: /api-docs/oas-3.0.0.json)"
+              << std::endl;
+
     // DONE INIT WEB FRONTEND
 
     // configure the engine.io stack for the test suite:
@@ -84,6 +89,14 @@ int main(int argc, const char* argv[])
 
     cout << "stopping" << endl;
     webApiStop();
+
+    cout << "\nEnvironment:\n";
+    cout << "objectsCount = " << oatpp::Environment::getObjectsCount() << "\n";
+    cout << "objectsCreated = " << oatpp::Environment::getObjectsCreated()
+         << "\n\n";
+
+    oatpp::Environment::destroy();
+
     cout << "done" << endl;
 
     return 0;

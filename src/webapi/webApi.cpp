@@ -29,6 +29,9 @@
 
 #include "oatpp_sio/webapi/appComponent.hpp"
 #include "oatpp_sio/webapi/swaggerComponent.hpp"
+#include "oatpp_sio/webapi/webApp.hpp"
+
+#include <cstdlib>
 
 // #include "oatpp_sio/globals.hpp"
 
@@ -138,11 +141,9 @@ void addSwaggerServerUrl(const std::string &url, const std::string &name)
     SwaggerComponent::addSwaggerServerUrl(url, name);
 }
 
-int webApiInit()
+void webApiInit()
 {
     api = new WebApi();
-
-    return 0;
 }
 
 /**
@@ -154,18 +155,8 @@ static int webApiRunner()
 
     api->run();
 
-    /* Print how much objects were created during app running, and what have
-   * left-probably leaked */
-    /* Disable object counting for release builds using '-D
-   * OATPP_DISABLE_ENV_OBJECT_COUNTERS' flag for better performance */
-    std::cout << "\nEnvironment:\n";
-    std::cout << "objectsCount = " << oatpp::Environment::getObjectsCount()
-              << "\n";
-    std::cout << "objectsCreated = " << oatpp::Environment::getObjectsCreated()
-              << "\n\n";
-
-    oatpp::Environment::destroy();
-
+    // note: tearing down the oatpp Environment is up to the application - a
+    // library must not shut down the environment of its caller
     return 0;
 }
 
@@ -178,14 +169,49 @@ void webApiStart(oatpp_sio::WebApiState &state)
 
 void webApiStop()
 {
+    // has to be called from the thread that owns the server, and only after
+    // webApiStart() - stopping before the server is up cannot work
     if (theServer) {
         theServer->stop();
         theServer = nullptr;
+    }
 
-        if (runner) {
+    if (runner) {
+        if (runner->joinable()) {
+            runner->join();
         }
+        delete runner;
         runner = nullptr;
     }
+}
+
+std::string getListenHost()
+{
+    const char* host = std::getenv("OATPP_SIO_HOST");
+    if (host != nullptr && *host != '\0') {
+        return std::string(host);
+    }
+    return std::string("0.0.0.0");
+}
+
+unsigned short getListenPort()
+{
+    const unsigned short defaultPort = 8000;
+
+    const char* port = std::getenv("OATPP_SIO_PORT");
+    if (port == nullptr || *port == '\0') {
+        return defaultPort;
+    }
+
+    char* end = nullptr;
+    const long value = std::strtol(port, &end, 10);
+    if (end == port || *end != '\0' || value <= 0 || value > 65535) {
+        OATPP_LOGw("WEBAPI",
+                   "invalid OATPP_SIO_PORT '{}', using {}", port,
+                   defaultPort);
+        return defaultPort;
+    }
+    return static_cast<unsigned short>(value);
 }
 
 }  // namespace webapi
