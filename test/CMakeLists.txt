@@ -20,6 +20,7 @@ set(sio_unit_tests
     SioServerTest
     SpaceTest
     UtilTest
+    WireTest
 )
 
 add_executable(sio-unit-tests
@@ -29,6 +30,7 @@ add_executable(sio-unit-tests
     unit/SioServerTest.cpp
     unit/SpaceTest.cpp
     unit/UtilTest.cpp
+    unit/WireTest.cpp
 )
 
 target_include_directories(sio-unit-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

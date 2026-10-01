@@ -1,12 +1,11 @@
 #include <memory>
 
-#include "oatpp/json/Serializer.hpp"
-#include "oatpp/json/ObjectMapper.hpp"
+#include "oatpp/base/Log.hpp"
 
 #include "oatpp_sio/sio/adapter.hpp"
 #include "oatpp_sio/sio/sioServer.hpp"
+#include "oatpp_sio/sio/wire.hpp"
 
-#include <iostream>
 using namespace std;
 
 using namespace oatpp_sio::sio;
@@ -38,17 +37,27 @@ void SioAdapter::left(std::shared_ptr<Space> space)
 void SioAdapter::onEioMessage(oatpp_sio::Message::Ptr msg)
 {
     OATPP_LOGi("SADAP", "SIo Packet... {}", msg->body);
+
+    // an empty packet carries no type - ignore it instead of reading past the
+    // end of the string
+    if (msg->body.empty()) {
+        OATPP_LOGw("SADAP", "empty socket.io packet, ignoring");
+        return;
+    }
+
     // decode, then push
-    char pType = msg->body[0];
+    const char pType = msg->body[0];
+    const std::string rest = msg->body.substr(1);
+
     switch (pType) {
-        case SioPacketType::connect:
-            onSioConnect(msg->body.substr(1));
+        case static_cast<char>(PacketType::connect):
+            onSioConnect(rest);
             break;
-        case SioPacketType::event:
-            onSioEvent(msg->body.substr(1));
+        case static_cast<char>(PacketType::event):
+            onSioEvent(rest);
             break;
         default:
-            OATPP_LOGi("SADAP", "Unknown SIo Packet {} {}", pType, (char)pType);
+            OATPP_LOGi("SADAP", "Unknown SIo Packet type '{}'", pType);
     }
 }
 
@@ -61,109 +70,41 @@ void SioAdapter::onSioMessage(std::shared_ptr<Space> space, Ptr sender,
         OATPP_LOGi("SADAP", "MSG TO SELF {} : {}", sender->id(), id());
         return;
     }
-    // @TODO: encode packets here
+
     oatpp_sio::Message::Ptr m = std::make_shared<oatpp_sio::Message>(*msg);
-    if (space->id() != "/") {
-        m->body = "2" + space->id() + "," + m->body;
-    } else {
-        m->body = "2" + m->body;
-    }
+    m->body = encodeEvent(space->id(), m->body);
 
-    OATPP_LOGi("SADAP", "INCOMING SIo Message {} : {}", space->id(), m->body);
+    OATPP_LOGi("SADAP", "FORWARD SIo Message {} : {}", space->id(), m->body);
     eioConn->handleMessage(m);
-}
-
-static auto json = std::make_shared<oatpp::json::ObjectMapper>();
-
-static bool parseMsg(const std::string& data, std::string& nbin,
-                     std::string& nsp, std::string& ack, std::string& payload)
-{
-    unsigned int i = 0;
-    if (data[i] >= '0' && data[i] <= '9') {
-        // TODO: parse # binary packets of available.
-        unsigned int start = i;
-        for (; i < data.size() - 1; i++) {
-            if (data[i] < '0' || data[i] > '9') {
-                break;
-            }
-        }
-        if (data[i] != '-') {
-            OATPP_LOGw("PRS", "Parse error in # bin packets!");
-            return false;
-        }
-        if (i > start) {
-            nbin = data.substr(start, i - start);
-        }
-    }
-    if (data[i] == '/') {
-        // collect namespace:
-        unsigned int start = i;
-
-        for (; i < data.size() - 1; i++) {
-            if (data[i] == ',') {
-                break;
-            }
-        }
-        if (data[i] != ',') {
-            OATPP_LOGw("PRS", "Parse error in namespace!");
-            return false;
-        }
-        nsp = data.substr(start, i);
-        i++;  // jump over ','
-    } else {
-        nsp = "/";
-    }
-
-    if (data[i] >= '0' && data[i] <= '9') {
-        // parse ack id:
-        unsigned int start = i;
-        for (; i < data.size(); i++) {
-            if (data[i] < '0' || data[i] > '9') {
-                break;
-            }
-        }
-        if (i > start) {
-            ack = data.substr(start, i - start);
-        }
-    }
-
-    // rest is json data
-    payload = data.substr(i);
-
-    return true;
 }
 
 void SioAdapter::onSioEvent(const std::string& data)
 {
     OATPP_LOGi("SADAP", "onSioEvent |{}|", data);
-    std::string nbin = "";
-    std::string nsp = "/";
-    std::string ackId = "";
-    std::string payload = "{}";
 
-    bool success = parseMsg(data, nbin, nsp, ackId, payload);
+    WirePacket packet;
+    if (!parsePacket(data, packet)) {
+        // never publish or ack a packet we could not make sense of
+        OATPP_LOGw("SADAP", "malformed event packet, dropping: |{}|", data);
+        return;
+    }
 
-    OATPP_LOGi("SADAP", "onSioEvent EMIT |{}|", payload);
+    OATPP_LOGi("SADAP", "onSioEvent EMIT |{}|", packet.payload);
 
     // publish to space
     {
         auto self = eioConn->getSio();
         auto msg = std::make_shared<oatpp_sio::Message>();
-        msg->body = payload;
-        auto space = SioServer::serverInstance().getSpace(nsp);
+        msg->body = packet.payload;
+        auto space = SioServer::serverInstance().getSpace(packet.nsp);
         space->publish(space, self, msg);
     }
-    // ack message...:
-    if (success) {
-        std::string encoded;
-        encoded = "3";
-        if (nsp != "/") {  // encode namespace
-            encoded += nsp + ",";
-        }
-        encoded += ackId + "";
 
+    // ack the client - only if it asked for an ack. Sending "3" with an empty
+    // ack id confuses clients.
+    if (!packet.ack.empty()) {
         auto msg = std::make_shared<oatpp_sio::Message>();
-        msg->body = encoded;
+        msg->body = encodeAck(packet.nsp, packet.ack);
         this->eioConn->handleMessage(msg);
     }
 }
@@ -173,35 +114,22 @@ void SioAdapter::onSioConnect(const std::string& connTo)
 {
     OATPP_LOGi("SADAP", "onSioConnect... |{}|", connTo);
 
-    std::string nbin = "";
-    std::string space = "/";
-    std::string ackId = "";
-    std::string payload = "{}";
-
-    bool success = parseMsg(connTo, nbin, space, ackId, payload);
+    WirePacket packet;
+    bool success = parsePacket(connTo, packet);
 
     std::string sioId;
     auto self = eioConn->getSio();
-    success &= SioServer::serverInstance().connectToSpace(space, self, sioId);
-
     if (success) {
-        std::string encoded;
-
-        encoded = "0";
-        if (space != "/") {  // encode namespace
-            encoded += space + ",";
-        }
-        encoded += "{\"sid\":\"" + sioId + "\"}";
-
-        auto msg = std::make_shared<oatpp_sio::Message>();
-        msg->body = encoded;
-        this->eioConn->handleMessage(msg);
-    } else {
-        std::string encoded;  // -> disconnect
-        encoded = "1";        //{\"sid\":\"" + sioId + "\"}";
-
-        auto msg = std::make_shared<oatpp_sio::Message>();
-        msg->body = encoded;
-        this->eioConn->handleMessage(msg);
+        success = SioServer::serverInstance().connectToSpace(packet.nsp, self,
+                                                             sioId);
     }
+
+    auto msg = std::make_shared<oatpp_sio::Message>();
+    if (success) {
+        msg->body = encodeConnectAck(packet.nsp, sioId);
+    } else {
+        OATPP_LOGw("SADAP", "connect refused: |{}|", connTo);
+        msg->body = encodeDisconnect(packet.nsp);
+    }
+    this->eioConn->handleMessage(msg);
 }

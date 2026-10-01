@@ -6,6 +6,7 @@
 #include "oatpp_sio/eio/connection.hpp"
 
 #include "oatpp_sio/sio/space.hpp"
+#include "oatpp_sio/sio/wire.hpp"
 
 namespace oatpp_sio {
 
@@ -17,16 +18,11 @@ class EioConnection;
 
 namespace sio {
 
-typedef enum
-{
-    connect = '0',
-    disconnect,     // 1
-    event,          // 2
-    ack,            // 3
-    connect_error,  // 4
-    binary_event,   // 5
-    binary_ack      // 6
-} SioPacketType;
+/**
+ * The packet types moved to oatpp_sio/sio/wire.hpp (as `PacketType`, with
+ * camel case enumerators). Kept as an alias for source compatibility.
+ */
+using SioPacketType = PacketType;
 
 
 /** A connector between the lower-level engine connection and a number of socket.io

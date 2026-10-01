@@ -18,11 +18,13 @@
 #include "unit/SioServerTest.hpp"
 #include "unit/SpaceTest.hpp"
 #include "unit/UtilTest.hpp"
+#include "unit/WireTest.hpp"
 
 SIO_REGISTER_TEST(EioPacketTest, EioPacketTest);
 SIO_REGISTER_TEST(SioServerTest, SioServerTest);
 SIO_REGISTER_TEST(SpaceTest, SpaceTest);
 SIO_REGISTER_TEST(UtilTest, UtilTest);
+SIO_REGISTER_TEST(WireTest, WireTest);
 
 int main(int argc, const char* argv[]) {
 
