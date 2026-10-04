@@ -79,6 +79,24 @@ MUTATIONS = [
      "    if (!plugin) {",
      "    if (false) {",
      ["unit.AuthPluginTest", "integration.AuthTest"]),
+
+    ("maxpayload-not-checked-before-reading",
+     "include/oatpp_sio/webapi/controller/sioController.hpp",
+     "            if (theEngine->exceedsMaxPayload(declared)) {",
+     "            if (false) {",
+     ["integration.MaxPayloadTest"]),
+
+    ("maxpayload-not-checked-after-reading",
+     "include/oatpp_sio/webapi/controller/sioController.hpp",
+     "            if (oatpp_sio::eio::theEngine->exceedsMaxPayload(\n                    static_cast<long long>(body->size()))) {",
+     "            if (false) {",
+     ["integration.MaxPayloadTest"]),
+
+    ("maxpayload-not-checked-on-websocket",
+     "src/eio/wsConnection.cpp",
+     "        if (buffered + static_cast<unsigned long long>(size) > limit) {",
+     "        if (false) {",
+     ["integration.MaxPayloadTest"]),
 ]
 
 UNIT_BIN = "./build/test/sio-unit-tests"

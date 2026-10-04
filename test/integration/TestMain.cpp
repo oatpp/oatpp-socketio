@@ -23,6 +23,7 @@
 #include "integration/AuthTest.hpp"
 #include "integration/ConnectionCloseTest.hpp"
 #include "integration/EngineIoTest.hpp"
+#include "integration/MaxPayloadTest.hpp"
 #include "integration/NamespacePolicyTest.hpp"
 #include "integration/SocketIoTest.hpp"
 #include "integration/WebApiTest.hpp"
@@ -42,6 +43,7 @@ const char* siotest::g_webRoot = "/tmp/oatpp-socketio-tests-web/";
 SIO_REGISTER_TEST(AuthTest, AuthTest);
 SIO_REGISTER_TEST(ConnectionCloseTest, ConnectionCloseTest);
 SIO_REGISTER_TEST(EngineIoTest, EngineIoTest);
+SIO_REGISTER_TEST(MaxPayloadTest, MaxPayloadTest);
 SIO_REGISTER_TEST(NamespacePolicyTest, NamespacePolicyTest);
 SIO_REGISTER_TEST(SocketIoTest, SocketIoTest);
 SIO_REGISTER_TEST(WebSocketTest, WebSocketTest);

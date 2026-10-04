@@ -87,41 +87,20 @@ std::string headerValue(const std::string& headers, const std::string& name) {
   return std::string();
 }
 
-}  // namespace
-
-RawResponse httpRequest(unsigned short port, const std::string& method,
-                        const std::string& path, const std::string& body,
-                        int timeoutMs) {
-
+/** send the request, read the whole response, close the socket */
+RawResponse sendAndRead(int fd, const std::string& request,
+                        bool halfCloseAfterSend = false) {
   RawResponse response;
-
-  const int fd = connectTo(port, timeoutMs);
-  if (fd < 0) {
-    response.connectFailed = true;
-    return response;  // ok = false
-  }
-
-  std::string request;
-  request += method;
-  request += " ";
-  request += path;
-  request += " HTTP/1.1\r\n";
-  request += "Host: 127.0.0.1:" + std::to_string(port) + "\r\n";
-  request += "Connection: close\r\n";
-  request += "Accept: */*\r\n";
-  if (!body.empty() || method == "POST" || method == "PUT") {
-    // Content-Length must be sent even for an empty body, otherwise the
-    // server waits for a body that never arrives
-    request += "Content-Type: text/plain;charset=UTF-8\r\n";
-    request += "Content-Length: " + std::to_string(body.size()) + "\r\n";
-  }
-  request += "\r\n";
-  request += body;
 
   if (!sendAll(fd, request)) {
     ::close(fd);
     response.peerClosed = true;
     return response;
+  }
+
+  if (halfCloseAfterSend) {
+    // "that is all the body" - while still listening for the answer
+    ::shutdown(fd, SHUT_WR);
   }
 
   std::string raw;
@@ -193,6 +172,90 @@ RawResponse httpRequest(unsigned short port, const std::string& method,
   }
   response.ok = true;
   return response;
+}
+
+}  // namespace
+
+RawResponse httpRequest(unsigned short port, const std::string& method,
+                        const std::string& path, const std::string& body,
+                        int timeoutMs) {
+
+  const int fd = connectTo(port, timeoutMs);
+  if (fd < 0) {
+    RawResponse response;
+    response.connectFailed = true;
+    return response;  // ok = false
+  }
+
+  std::string request;
+  request += method;
+  request += " ";
+  request += path;
+  request += " HTTP/1.1\r\n";
+  request += "Host: 127.0.0.1:" + std::to_string(port) + "\r\n";
+  request += "Connection: close\r\n";
+  request += "Accept: */*\r\n";
+  if (!body.empty() || method == "POST" || method == "PUT") {
+    // Content-Length must be sent even for an empty body, otherwise the
+    // server waits for a body that never arrives
+    request += "Content-Type: text/plain;charset=UTF-8\r\n";
+    request += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+  }
+  request += "\r\n";
+  request += body;
+
+  return sendAndRead(fd, request);
+}
+
+RawResponse httpRequestBodyToEof(unsigned short port, const std::string& path,
+                                 const std::string& body, int timeoutMs) {
+
+  const int fd = connectTo(port, timeoutMs);
+  if (fd < 0) {
+    RawResponse response;
+    response.connectFailed = true;
+    return response;
+  }
+
+  // No Content-Length and no Transfer-Encoding: the body is delimited by the
+  // end of the stream, which is what the half-close below announces.
+  std::string request;
+  request += "POST ";
+  request += path;
+  request += " HTTP/1.1\r\n";
+  request += "Host: 127.0.0.1:" + std::to_string(port) + "\r\n";
+  request += "Connection: close\r\n";
+  request += "Accept: */*\r\n";
+  request += "Content-Type: text/plain;charset=UTF-8\r\n";
+  request += "\r\n";
+  request += body;
+
+  return sendAndRead(fd, request, /*halfCloseAfterSend = */ true);
+}
+
+RawResponse httpRequestHeadersOnly(unsigned short port, const std::string& path,
+                                   size_t declaredLength, int timeoutMs) {
+
+  const int fd = connectTo(port, timeoutMs);
+  if (fd < 0) {
+    RawResponse response;
+    response.connectFailed = true;
+    return response;
+  }
+
+  std::string request;
+  request += "POST ";
+  request += path;
+  request += " HTTP/1.1\r\n";
+  request += "Host: 127.0.0.1:" + std::to_string(port) + "\r\n";
+  request += "Connection: close\r\n";
+  request += "Accept: */*\r\n";
+  request += "Content-Type: text/plain;charset=UTF-8\r\n";
+  request += "Content-Length: " + std::to_string(declaredLength) + "\r\n";
+  request += "\r\n";
+  // ... and no body, ever
+
+  return sendAndRead(fd, request);
 }
 
 bool waitForPort(unsigned short port, int timeoutMs) {

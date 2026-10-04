@@ -55,6 +55,7 @@ set(sio_integration_tests
     AuthTest
     ConnectionCloseTest
     EngineIoTest
+    MaxPayloadTest
     NamespacePolicyTest
     SocketIoTest
     WebSocketTest

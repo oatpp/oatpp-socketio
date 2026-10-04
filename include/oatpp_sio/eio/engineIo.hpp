@@ -5,6 +5,7 @@
 
 #include "oatpp/web/server/api/ApiController.hpp"
 #include "oatpp/async/Coroutine.hpp"
+#include "oatpp/utils/Conversion.hpp"
 
 #include "oatpp-websocket/AsyncWebSocket.hpp"
 
@@ -38,7 +39,8 @@ class Engine
     unsigned int pingInterval = 25000;
     /** milliseconds to wait for a pong before the connection is dropped */
     unsigned int pingTimeout = 20000;
-    /** maximum payload size in bytes, advertised to the client */
+    /** maximum payload size in bytes, advertised to the client **and
+     *  enforced** on inbound request bodies and websocket frames */
     unsigned int maxPayload = 1000000;
     // todo: list of known connections here?
 
@@ -60,6 +62,24 @@ class Engine
         pingInterval = interval;
         pingTimeout = timeout;
         maxPayload = maxSize;
+    }
+
+    /**
+     * Is an inbound body of @p size bytes bigger than maxPayload?
+     *
+     * Advertising maxPayload in the OPEN packet is only a promise until
+     * somebody checks it: a client that ignores it must not be able to make
+     * the server buffer a body of its choosing.
+     *
+     * @param size bytes, or negative for "unknown" - a chunked request does
+     *             not declare a length, and that is not an error. Unknown is
+     *             not too big; the size that actually arrived is checked too.
+     */
+    bool exceedsMaxPayload(long long size) const
+    {
+        return size >= 0 &&
+               static_cast<unsigned long long>(size) >
+                   static_cast<unsigned long long>(maxPayload);
     }
     // for engine.io protocol tests enable this to override the actual socket.io layer:
     bool testMode = false;
@@ -88,6 +108,31 @@ class Engine
 };
 
 extern Engine* theEngine;
+
+/**
+ * The body length a request declares, i.e. its Content-Length header.
+ *
+ * Checked before the body is read so that an oversized POST cannot make the
+ * server allocate for it. Content-Length is a claim and not a fact, so this
+ * is only the first of two checks - see Engine::exceedsMaxPayload.
+ *
+ * @return the declared number of bytes, or -1 if the header is absent (e.g.
+ *         a chunked body) or does not parse.
+ */
+inline long long declaredBodyLength(
+    const std::shared_ptr<oatpp::web::protocol::http::incoming::Request>& req)
+{
+    if (!req.get()) {
+        return -1;
+    }
+    const oatpp::String declared = req->getHeaders().get("Content-Length");
+    if (!declared) {
+        return -1;
+    }
+    bool ok = false;
+    const long long value = oatpp::utils::Conversion::strToInt64(declared, ok);
+    return ok ? value : -1;
+}
 
 }  // namespace eio
 }  // namespace oatpp_sio

@@ -284,10 +284,23 @@ class SocketIoController : public oatpp::web::server::api::ApiController
         {
             // assert conn is set!
 
-            if (!body->size()) {
+            if (!body || !body->size()) {
                 auto response =
                     controller->createResponse(Status::CODE_400, "no body");
                 return _return(response);
+            }
+
+            // The second of the two maxPayload checks: Content-Length is a
+            // claim, and a chunked body never declared one at all, so the size
+            // that actually arrived is what decides here.
+            if (oatpp_sio::eio::theEngine->exceedsMaxPayload(
+                    static_cast<long long>(body->size()))) {
+                OATPP_LOGw("SIO",
+                           "POST body of {} bytes exceeds maxPayload {}, refusing",
+                           body->size(),
+                           oatpp_sio::eio::theEngine->maxPayload);
+                return _return(controller->createResponse(
+                    Status::CODE_413, "payload too large"));
             }
 
             conn->handleLpPostMessage(body);
@@ -325,6 +338,20 @@ class SocketIoController : public oatpp::web::server::api::ApiController
             if (dbg)
                 OATPP_LOGd("SIO", "SioPost {} POST ok {} t {} s {}", sid, sio,
                            transport);
+
+            // First maxPayload check, before the body is read: a client that
+            // ignores what the OPEN packet advertises must not be able to make
+            // this server buffer whatever it decides to send. Only the request
+            // is refused - the session survives, because an oversized body is
+            // not a protocol violation on the connection.
+            const long long declared = declaredBodyLength(request);
+            if (theEngine->exceedsMaxPayload(declared)) {
+                OATPP_LOGw("SIO",
+                           "POST declares {} bytes, maxPayload is {}, refusing",
+                           declared, theEngine->maxPayload);
+                return _return(controller->createResponse(
+                    Status::CODE_413, "payload too large"));
+            }
 
             return request->readBodyToStringAsync().callbackTo(
                 &SioPost::withBody);

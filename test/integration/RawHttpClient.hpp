@@ -56,6 +56,31 @@ RawResponse httpRequest(unsigned short port, const std::string& method,
                         const std::string& body = std::string(),
                         int timeoutMs = 5000);
 
+/**
+ * POST a body with neither Content-Length nor Transfer-Encoding, then shut the
+ * write side of the connection down so the body is delimited by end-of-file.
+ *
+ * This is how a test reaches a server's check on the size that *actually*
+ * arrived: lying with a small Content-Length does not work, because an HTTP
+ * reader honours the header and reads exactly that many bytes. The read side
+ * stays open, so the response can still be read after the half-close.
+ */
+RawResponse httpRequestBodyToEof(unsigned short port, const std::string& path,
+                                 const std::string& body, int timeoutMs = 5000);
+
+/**
+ * Send request headers that promise a body of @p declaredLength bytes and then
+ * simply do not send it.
+ *
+ * A server that measures the body after reading it can only answer once the
+ * body arrived; one that checks the declared length first answers straight
+ * away. So the difference between the two is visible in *time*: this request
+ * gets a response only if the server looked at the header. Sending a real body
+ * would not tell them apart, because both checks reject it.
+ */
+RawResponse httpRequestHeadersOnly(unsigned short port, const std::string& path,
+                                   size_t declaredLength, int timeoutMs = 2000);
+
 /** true once something accepts TCP connections on port */
 bool waitForPort(unsigned short port, int timeoutMs = 10000);
 
