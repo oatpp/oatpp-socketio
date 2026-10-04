@@ -112,10 +112,21 @@ bool SioServer::connectToSpace(const std::string& spaceName,
     sioId.clear();
     reason.clear();
 
-    // 1. the namespace has to exist. Lookup only - creating one because a
-    // client asked for it is what auto-create is for, and that is off by
-    // default.
+    // 1. the namespace has to exist. It is only created here when the
+    // application opted in to clients deciding the namespace set; with the
+    // default (off) this is a lookup and nothing else, so a client cannot make
+    // the server allocate a namespace by naming one.
     Space::Ptr space = findSpace(spaceName);
+    if (!space && autoCreateSpaces) {
+        try {
+            space = newSpace(spaceName);
+            OATPP_LOGi("SioServer",
+                       "connectToSpace: auto-created namespace '{}'", spaceName);
+        } catch (const std::runtime_error&) {
+            // somebody else won the race for this name; use theirs
+            space = findSpace(spaceName);
+        }
+    }
     if (!space) {
         OATPP_LOGw("SioServer", "connectToSpace: no namespace '{}'", spaceName);
         reason = "Invalid namespace";

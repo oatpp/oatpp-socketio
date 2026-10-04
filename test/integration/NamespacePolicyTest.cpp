@@ -12,6 +12,24 @@
 using namespace siotest;
 using oatpp_sio::sio::SioServer;
 
+namespace {
+
+/** puts the auto-create flag back the way it was, also when the test threw */
+class AutoCreateGuard {
+public:
+  AutoCreateGuard(SioServer& server, bool enable)
+      : m_server(server), m_previous(server.autoCreateSpacesEnabled()) {
+    m_server.setAutoCreateSpaces(enable);
+  }
+  ~AutoCreateGuard() { m_server.setAutoCreateSpaces(m_previous); }
+
+private:
+  SioServer& m_server;
+  bool m_previous;
+};
+
+}  // namespace
+
 void NamespacePolicyTest::onRun() {
 
   auto& srv = SioServer::serverInstance();
@@ -71,6 +89,38 @@ void NamespacePolicyTest::onRun() {
     PollClient root(g_testPort);
     SIO_ASSERT(root.open());
     SIO_ASSERT(root.sioConnect("/"));
+  }
+
+  // -- auto-create is an opt-in, and when it is on it means what it says ----
+  // Flipping the flag back on is the old behaviour: a client names a namespace
+  // and the server allocates it. That has to be observable, or the flag is a
+  // knob that is not connected to anything.
+  {
+    const std::string clientNamed = "/client-decided";
+    const size_t spacesBefore = srv.spaceCount();
+
+    {
+      AutoCreateGuard on(srv, true);
+      PollClient c(g_testPort);
+      SIO_ASSERT(c.open());
+      SIO_ASSERT_MSG(c.sioConnect(clientNamed),
+                     "with auto-create on, a client-named namespace must connect");
+      SIO_ASSERT(srv.findSpace(clientNamed) != nullptr);
+      SIO_ASSERT_EQ(srv.spaceCount(), spacesBefore + 1);
+
+      // leave and retire it again, so the test does not change the server for
+      // the ones after it
+      std::string sid = c.sioSid();
+      SIO_ASSERT(srv.leaveSpace(clientNamed, sid));
+    }
+
+    // off again: the same name is refused, exactly like any other unknown one
+    SIO_ASSERT(srv.dropSpace(clientNamed));
+    SIO_ASSERT_EQ(srv.spaceCount(), spacesBefore);
+    PollClient after(g_testPort);
+    SIO_ASSERT(after.open());
+    SIO_ASSERT(after.post("0" + clientNamed + ","));
+    SIO_ASSERT(startsWith(after.poll(), "44" + clientNamed + ","));
   }
 
   // -- a namespace can be dropped again, but not while it has members -------

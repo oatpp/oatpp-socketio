@@ -83,7 +83,9 @@ class SioServer
      * Let unknown namespaces be created on first connect.
      *
      * Off by default; turn it on only where clients, not the application,
-     * decide the set of namespaces.
+     * decide the set of namespaces. Note that turning it on moves a write to
+     * the namespace registry onto the request path - see the note on
+     * dropSpace() about what that costs in terms of synchronisation.
      */
     void setAutoCreateSpaces(bool enable) { autoCreateSpaces = enable; }
     bool autoCreateSpacesEnabled() const { return autoCreateSpaces; }

@@ -105,6 +105,48 @@ void SioServerTest::onRun() {
     SIO_ASSERT(!srv.autoCreateSpacesEnabled());
   }
 
+  // -- auto-create also decides what a client may name on a CONNECT ---------
+  // The flag has to be honoured on the connect path or it means nothing: that
+  // path is the only place a namespace name arrives from outside the process.
+  {
+    const auto clientNamed = uniqueName("/client-named");
+    auto asker = std::make_shared<RecordingListener>("asker");
+    std::string sioId, reason;
+
+    // off (the default): refused, and nothing was created by the attempt
+    SIO_ASSERT(!srv.autoCreateSpacesEnabled());
+    SIO_ASSERT(!srv.connectToSpace(clientNamed, asker, sioId, reason));
+    SIO_ASSERT_EQ(reason, std::string("Invalid namespace"));
+    SIO_ASSERT(srv.findSpace(clientNamed) == nullptr);
+    SIO_ASSERT_EQ(asker->subscribedCount, 0);
+
+    // on: the client decides, so the namespace comes into existence
+    srv.setAutoCreateSpaces(true);
+    const size_t withIt = srv.spaceCount();
+    SIO_ASSERT(srv.connectToSpace(clientNamed, asker, sioId, reason));
+    SIO_ASSERT(reason.empty());
+    SIO_ASSERT_EQ(srv.spaceCount(), withIt + 1);
+    SIO_ASSERT_EQ(srv.findSpace(clientNamed)->size(), 1);
+    SIO_ASSERT_EQ(asker->subscribedCount, 1);
+
+    // and it is the same namespace next time, not a second one
+    auto second = std::make_shared<RecordingListener>("asker-2");
+    std::string secondId;
+    SIO_ASSERT(srv.connectToSpace(clientNamed, second, secondId));
+    SIO_ASSERT_EQ(srv.spaceCount(), withIt + 1);
+    SIO_ASSERT_EQ(srv.findSpace(clientNamed)->size(), 2);
+
+    // turning it back off does not remove what it created - retiring is what
+    // dropSpace() is for, and it is still refused while members are in it
+    srv.setAutoCreateSpaces(false);
+    SIO_ASSERT(!srv.dropSpace(clientNamed));
+    std::string leave1 = sioId, leave2 = secondId;
+    SIO_ASSERT(srv.leaveSpace(clientNamed, leave1));
+    SIO_ASSERT(srv.leaveSpace(clientNamed, leave2));
+    SIO_ASSERT(srv.dropSpace(clientNamed));
+    SIO_ASSERT_EQ(srv.spaceCount(), withIt);
+  }
+
   // -- dropSpace() retires a namespace again ---------------------------------
   {
     const auto temp = uniqueName("/temp");
