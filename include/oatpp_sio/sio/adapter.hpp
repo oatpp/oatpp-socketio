@@ -36,6 +36,14 @@ class SioAdapter : public SpaceListener
 
     std::shared_ptr<oatpp_sio::eio::EioConnection> eioConn;
 
+    /**
+     * The spaces this connection joined, maintained by subscribed()/left().
+     * This is the authorisation set for publishing: the namespace on an
+     * incoming packet comes off the wire, so it is client-supplied and has to
+     * be checked against this instead of being used to look up the global
+     * space registry - which would let one client publish into namespaces it
+     * never connected to, and would create them on demand.
+     */
     std::unordered_map<std::string, Space::Ptr> mySpaces;
 
     // low-level ->up
@@ -55,6 +63,19 @@ class SioAdapter : public SpaceListener
     void onSioConnect(const std::string& data);
 
     void onSioEvent(const std::string& data);
+
+    /**
+     * The space with this id, but only if this connection joined it.
+     * Returns null otherwise; never creates one.
+     */
+    Space::Ptr joinedSpace(const std::string& name) const;
+
+    /**
+     * Protocol violation: log and drop the connection, the way the reference
+     * server does when a packet arrives for a namespace this client has no
+     * socket for.
+     */
+    void dropConnection(const std::string& reason);
 };
 
 }  // namespace sio

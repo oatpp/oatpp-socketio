@@ -10,6 +10,22 @@ using namespace std;
 
 using namespace oatpp_sio::sio;
 
+Space::Ptr SioAdapter::joinedSpace(const std::string& name) const
+{
+    auto it = mySpaces.find(name);
+    return it == mySpaces.end() ? Space::Ptr() : it->second;
+}
+
+void SioAdapter::dropConnection(const std::string& reason)
+{
+    OATPP_LOGw("SADAP", "protocol violation, dropping connection {}: {}", id(),
+               reason);
+    auto conn = eioConn;
+    if (conn) {
+        conn->shutdownConnection();
+    }
+}
+
 void SioAdapter::shutdown()
 {
     auto iter = mySpaces.begin();
@@ -44,6 +60,13 @@ void SioAdapter::onEioMessage(oatpp_sio::Message::Ptr msg)
         OATPP_LOGw("SADAP", "empty socket.io packet, ignoring");
         return;
     }
+
+    // Hold a reference to ourselves for the duration of the call: handling a
+    // packet can drop the connection (a protocol violation does), and the
+    // connection holds the only strong reference to this adapter, so without
+    // this `this` could be destroyed while still executing.
+    const std::shared_ptr<SioAdapter> keep =
+        eioConn ? eioConn->getSio() : nullptr;
 
     // decode, then push
     const char pType = msg->body[0];
@@ -91,12 +114,22 @@ void SioAdapter::onSioEvent(const std::string& data)
 
     OATPP_LOGi("SADAP", "onSioEvent EMIT |{}|", packet.payload);
 
-    // publish to space
+    // The namespace is client-supplied, so it cannot be used to look up the
+    // global space registry: that lets any client publish into any other
+    // namespace just by naming it on the packet, and getSpace() creates the
+    // space on demand while it is at it. Only publish into spaces this
+    // connection joined. A packet naming one it did not is a protocol
+    // violation, and the reference server closes the connection over it.
+    auto space = joinedSpace(packet.nsp);
+    if (!space) {
+        dropConnection("event for namespace '" + packet.nsp + "' this connection did not join");
+        return;
+    }
+
     {
         auto self = eioConn->getSio();
         auto msg = std::make_shared<oatpp_sio::Message>();
         msg->body = packet.payload;
-        auto space = SioServer::serverInstance().getSpace(packet.nsp);
         space->publish(space, self, msg);
     }
 

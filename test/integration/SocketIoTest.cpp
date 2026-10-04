@@ -101,6 +101,34 @@ void SocketIoTest::onRun() {
     SIO_ASSERT(received.find("2/chat,[\"chatmsg\",1]") != std::string::npos);
   }
 
+  // -- a client cannot publish into a namespace it did not join ------------
+  // The namespace on a packet is client-supplied, so it must be checked
+  // against what this connection actually connected to. Letting it name any
+  // space means one client can inject events into namespaces it is not part
+  // of - and getSpace() would create the named space while it was at it.
+  {
+    PollClient chat(g_testPort);
+    SIO_ASSERT(chat.open());
+    SIO_ASSERT(chat.sioConnect("/chat"));
+
+    PollClient root(g_testPort);
+    SIO_ASSERT(root.open());
+    SIO_ASSERT(root.sioConnect("/"));
+
+    SIO_ASSERT(chat.post("2/[\"INJECTED\",1]"));
+
+    // the reference server closes the connection on a packet naming a
+    // namespace the client has no socket for; do the same
+    SIO_ASSERT(chat.waitForClose(3000));
+
+    // and the root namespace never saw the event
+    std::string got;
+    SIO_ASSERT(root.state(&got) == PollClient::ConnState::Alive);
+    SIO_ASSERT(got.find("INJECTED") == std::string::npos);
+
+    root.close();
+  }
+
   // -- an empty packet does not kill the connection ------------------------
   {
     PollClient c(g_testPort);
