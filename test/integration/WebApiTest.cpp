@@ -5,6 +5,7 @@
 #include "TestConfig.hpp"
 
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <iostream>
 #include <string>
@@ -34,6 +35,11 @@ void WebApiTest::onRun() {
       "/%2e%2e%2f%2e%2e%2fetc%2fpasswd",
       "/....//etc/passwd",
       "/hello.txt/../../../../etc/passwd",
+      "/./../../etc/passwd",
+      "/subdir/../../../../etc/passwd",
+      "/..%00/etc/passwd",  // a NUL must not truncate the path that gets
+                            // opened relative to the one that got checked
+      "\\..\\..\\etc\\passwd",
   };
 
   for (const char* path : attacks) {
@@ -45,6 +51,24 @@ void WebApiTest::onRun() {
     if (response.status == 200) {
       ::siotest::fail(std::string("path traversal via ") + path,
                       "HTTP 200 for a path outside the web root");
+    }
+  }
+
+  // -- a symlink in the web root must not be a way out of it ---------------
+  // Pure lexical normalisation would accept this one: the request path stays
+  // below the root the whole time, but the file that ends up open does not.
+  {
+    const std::string link = std::string(siotest::g_webRoot) + "escape";
+    ::unlink(link.c_str());  // left over from an earlier run
+    if (::symlink("/etc", link.c_str()) == 0) {
+      const RawResponse response =
+          httpRequest(g_testPort, "GET", "/escape/passwd");
+      if (response.status == 200 &&
+          response.body.find("root:x:0:0") != std::string::npos) {
+        ::siotest::fail("symlink escape via /escape/passwd",
+                        "the server followed a link out of the web root");
+      }
+      ::unlink(link.c_str());
     }
   }
 
