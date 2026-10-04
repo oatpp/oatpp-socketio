@@ -7,15 +7,15 @@
 #ifndef SIO_TEST_SioServerTest_hpp
 #define SIO_TEST_SioServerTest_hpp
 
-#include "oatpp-test/UnitTest.hpp"
+#include "TestRunner.hpp"
 
 /**
  * `SioServer` keeps the registry of spaces (socket.io namespaces) and
  * connects/disconnects `SpaceListener`s.
  */
-class SioServerTest : public oatpp::test::UnitTest {
+class SioServerTest : public siotest::Test {
 public:
-  SioServerTest() : UnitTest("TEST[sio.SioServer]") {}
+  SioServerTest() : Test("TEST[sio.SioServer]") {}
 
   void onRun() override;
 };

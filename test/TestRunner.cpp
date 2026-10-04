@@ -5,8 +5,43 @@
 #include <algorithm>
 #include <exception>
 #include <iostream>
+#include <sstream>
 
 namespace siotest {
+
+void Test::run() {
+
+  const v_counter objectsBefore = oatpp::Environment::getObjectsCount();
+
+  before();
+
+  // after() has to run even when the test failed, so that a test which
+  // registered something cleans up; the failure is rethrown afterwards.
+  std::exception_ptr pending;
+  try {
+    onRun();
+  } catch (...) {
+    pending = std::current_exception();
+  }
+
+  after();
+
+  if (pending) {
+    std::rethrow_exception(pending);
+  }
+
+  if (m_checkLeaks) {
+    const v_counter leaked =
+        oatpp::Environment::getObjectsCount() - objectsBefore;
+    if (leaked != 0) {
+      std::ostringstream os;
+      os << TAG << ": leaked " << leaked
+         << " oatpp object(s) (objects still alive at the end of the test: "
+         << oatpp::Environment::getObjectsCount() << ")";
+      throw LeakError(os.str());
+    }
+  }
+}
 
 std::vector<TestEntry>& registry() {
   static std::vector<TestEntry> entries;
@@ -15,7 +50,7 @@ std::vector<TestEntry>& registry() {
 
 TestRegistrar::TestRegistrar(
     const std::string& name,
-    std::function<std::unique_ptr<oatpp::test::UnitTest>()> factory) {
+    std::function<std::unique_ptr<Test>()> factory) {
   registry().push_back(TestEntry{name, std::move(factory)});
 }
 
@@ -66,6 +101,10 @@ int runFromArgs(int argc, const char* argv[]) {
       std::cout << "========== PASS " << name << " ==========\n" << std::flush;
     } catch (const siotest::AssertionError& e) {
       std::cerr << "========== FAIL " << name << " ==========\n"
+                << "  " << e.what() << "\n" << std::flush;
+      failed++;
+    } catch (const siotest::LeakError& e) {
+      std::cerr << "========== FAIL " << name << " (leak check) ==========\n"
                 << "  " << e.what() << "\n" << std::flush;
       failed++;
     } catch (const std::exception& e) {

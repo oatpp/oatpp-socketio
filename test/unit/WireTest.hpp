@@ -7,11 +7,11 @@
 #ifndef SIO_TEST_WireTest_hpp
 #define SIO_TEST_WireTest_hpp
 
-#include "oatpp-test/UnitTest.hpp"
+#include "TestRunner.hpp"
 
-class WireTest : public oatpp::test::UnitTest {
+class WireTest : public siotest::Test {
 public:
-  WireTest() : UnitTest("TEST[sio.Wire]") {}
+  WireTest() : Test("TEST[sio.Wire]") {}
 
   void onRun() override;
 };

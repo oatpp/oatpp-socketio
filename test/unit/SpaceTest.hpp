@@ -7,15 +7,15 @@
 #ifndef SIO_TEST_SpaceTest_hpp
 #define SIO_TEST_SpaceTest_hpp
 
-#include "oatpp-test/UnitTest.hpp"
+#include "TestRunner.hpp"
 
 /**
  * `Space` is the socket.io namespace: a set of `SpaceListener`s plus
  * publish()/publishAsync() fan-out.
  */
-class SpaceTest : public oatpp::test::UnitTest {
+class SpaceTest : public siotest::Test {
 public:
-  SpaceTest() : UnitTest("TEST[sio.Space]") {}
+  SpaceTest() : Test("TEST[sio.Space]") {}
 
   void onRun() override;
 };

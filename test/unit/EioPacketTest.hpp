@@ -7,11 +7,11 @@
 #ifndef SIO_TEST_EioPacketTest_hpp
 #define SIO_TEST_EioPacketTest_hpp
 
-#include "oatpp-test/UnitTest.hpp"
+#include "TestRunner.hpp"
 
-class EioPacketTest : public oatpp::test::UnitTest {
+class EioPacketTest : public siotest::Test {
 public:
-  EioPacketTest() : UnitTest("TEST[eio.Packet]") {}
+  EioPacketTest() : Test("TEST[eio.Packet]") {}
 
   void onRun() override;
 };

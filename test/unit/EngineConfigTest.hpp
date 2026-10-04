@@ -7,11 +7,11 @@
 #ifndef SIO_TEST_EngineConfigTest_hpp
 #define SIO_TEST_EngineConfigTest_hpp
 
-#include "oatpp-test/UnitTest.hpp"
+#include "TestRunner.hpp"
 
-class EngineConfigTest : public oatpp::test::UnitTest {
+class EngineConfigTest : public siotest::Test {
 public:
-  EngineConfigTest() : UnitTest("TEST[eio.Config]") {}
+  EngineConfigTest() : Test("TEST[eio.Config]") {}
 
   void onRun() override;
 };

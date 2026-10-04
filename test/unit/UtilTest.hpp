@@ -7,11 +7,11 @@
 #ifndef SIO_TEST_UtilTest_hpp
 #define SIO_TEST_UtilTest_hpp
 
-#include "oatpp-test/UnitTest.hpp"
+#include "TestRunner.hpp"
 
-class UtilTest : public oatpp::test::UnitTest {
+class UtilTest : public siotest::Test {
 public:
-  UtilTest() : UnitTest("TEST[util]") {}
+  UtilTest() : Test("TEST[util]") {}
 
   void onRun() override;
 };
