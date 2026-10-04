@@ -8,23 +8,11 @@
 #include "oatpp_sio/eio/engineIo.hpp"
 #include "oatpp_sio/eio/connection.hpp"
 
+#include "oatpp_sio/sio/auth.hpp"
 #include "oatpp_sio/sio/space.hpp"
 
 namespace oatpp_sio {
 namespace sio {
-
-/** an authentication shim layer.  */
-class SioAuth
-{
-   public:
-    virtual bool mayConnect(const std::string& spaceName,
-                            oatpp_sio::sio::SpaceListener::Ptr listener)
-    {
-        return true;
-    };
-
-    typedef std::shared_ptr<SioAuth> Ptr;
-};
 
 /** A connector between the lower-level engine connection and a number of socket.io
  * namespaces. this is also responsible for en/decoding the messages into the wire format  */
@@ -43,10 +31,10 @@ class SioServer
      */
     bool autoCreateSpaces = false;
 
+    AuthPlugin::Ptr auth;
+
     SioServer();
     virtual ~SioServer();
-
-    SioAuth::Ptr auth;
 
    public:
     static SioServer& serverInstance();
@@ -101,10 +89,26 @@ class SioServer
     bool autoCreateSpacesEnabled() const { return autoCreateSpaces; }
 
     /**
+     * Install the authentication plugin. A null plugin is not accepted - the
+     * always-allow default is restored instead, so forgetting to configure one
+     * fails open the way it always has rather than locking everyone out.
+     *
+     * Like newSpace()/dropSpace(), this is a start-up operation: the plugin is
+     * read on every connect and publish from the threads serving those
+     * requests, and swapping it while traffic is running is not synchronised
+     * against them. Install it before webApiStart().
+     */
+    void setAuthPlugin(AuthPlugin::Ptr plugin);
+
+    /** the plugin in force; never null */
+    AuthPlugin::Ptr authPlugin() const { return auth; }
+
+    /**
      * Subscribe a listener to a namespace and notify it.
      *
      * @return true if the listener joined. false if the namespace does not
-     *         exist - the reason is then "Invalid namespace".
+     *         exist or the auth plugin refused the connection - the reason is
+     *         then "Invalid namespace" or whatever the plugin supplied.
      */
     bool connectToSpace(const std::string& spaceName,
                         oatpp_sio::sio::SpaceListener::Ptr listener,

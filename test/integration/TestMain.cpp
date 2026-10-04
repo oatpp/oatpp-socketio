@@ -20,6 +20,7 @@
 #include "oatpp_sio/sio/sioServer.hpp"
 #include "oatpp_sio/webapi/webApp.hpp"
 
+#include "integration/AuthTest.hpp"
 #include "integration/ConnectionCloseTest.hpp"
 #include "integration/EngineIoTest.hpp"
 #include "integration/NamespacePolicyTest.hpp"
@@ -38,6 +39,7 @@
 unsigned short siotest::g_testPort = 18321;
 const char* siotest::g_webRoot = "/tmp/oatpp-socketio-tests-web/";
 
+SIO_REGISTER_TEST(AuthTest, AuthTest);
 SIO_REGISTER_TEST(ConnectionCloseTest, ConnectionCloseTest);
 SIO_REGISTER_TEST(EngineIoTest, EngineIoTest);
 SIO_REGISTER_TEST(NamespacePolicyTest, NamespacePolicyTest);

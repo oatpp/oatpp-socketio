@@ -126,8 +126,20 @@ void SioAdapter::onSioEvent(const std::string& data)
         return;
     }
 
+    // hold our own connection alive across the publish: a listener may drop it
+    const auto self = eioConn->getSio();
+
+    // The auth plugin, if the application installed one, gets a say on every
+    // publish as well. This is a policy layer *on top of* the membership check
+    // above - it can only narrow what a connection may do, never widen it. A
+    // refused publish is dropped quietly: the connection did nothing wrong at
+    // the protocol level, it just is not allowed to say this.
+    if (!SioServer::serverInstance().authPlugin()->mayPublish(packet.nsp, self)) {
+        OATPP_LOGw("SADAP", "publish to '{}' refused by auth plugin, dropping", packet.nsp);
+        return;
+    }
+
     {
-        auto self = eioConn->getSio();
         auto msg = std::make_shared<oatpp_sio::Message>();
         msg->body = packet.payload;
         space->publish(space, self, msg);

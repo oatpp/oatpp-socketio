@@ -8,7 +8,8 @@ SioServer* SioServer::universe = nullptr;
 
 SioServer::SioServer()
 {
-    auth = std::make_shared<SioAuth>();
+    // fail open, as the library always did when nothing was configured
+    auth = std::make_shared<AllowAllAuth>();
     newSpace("/");
 }
 
@@ -21,6 +22,16 @@ SioServer& SioServer::serverInstance()
         universe = new SioServer();
     }
     return *universe;
+}
+
+void SioServer::setAuthPlugin(AuthPlugin::Ptr plugin)
+{
+    if (!plugin) {
+        OATPP_LOGw("SioServer",
+                   "setAuthPlugin(null) ignored, keeping the current plugin");
+        return;
+    }
+    auth = plugin;
 }
 
 Space::Ptr SioServer::findSpace(const std::string& id) const
@@ -96,13 +107,14 @@ bool SioServer::connectToSpace(const std::string& spaceName,
     OATPP_LOGd("SioServer", "connectToSpace -> {} ", spaceName);
 
     // both are output parameters: whatever the caller left in them is not
-    // ours to interpret. Without this, a reused buffer reads back as a
-    // session id or a refusal reason from the previous call.
+    // ours to interpret. Without this, a reused buffer reads back as the
+    // refusal reason and a plugin that declines silently inherits it.
     sioId.clear();
     reason.clear();
 
-    // The namespace has to exist. Lookup only - creating one because a client
-    // asked for it is what auto-create is for, and that is off by default.
+    // 1. the namespace has to exist. Lookup only - creating one because a
+    // client asked for it is what auto-create is for, and that is off by
+    // default.
     Space::Ptr space = findSpace(spaceName);
     if (!space) {
         OATPP_LOGw("SioServer", "connectToSpace: no namespace '{}'", spaceName);
@@ -110,7 +122,18 @@ bool SioServer::connectToSpace(const std::string& spaceName,
         return false;
     }
 
-    // Join.
+    // 2. the application decides who gets in
+    if (!auth->mayConnect(spaceName, listener, reason)) {
+        if (reason.empty()) {
+            // the plugin declined to say why; do not send an empty message
+            reason = "Not authorized";
+        }
+        OATPP_LOGw("SioServer", "connectToSpace: '{}' refused for listener {}: {}",
+                   spaceName, listener->id(), reason);
+        return false;
+    }
+
+    // 3. join
     //
     // The space keys its subscriptions by listener id, so the id handed back
     // to the client must be that id. It used to be a fresh random string,

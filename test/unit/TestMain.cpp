@@ -14,6 +14,7 @@
 #include "oatpp/async/Executor.hpp"
 #include "oatpp/macro/component.hpp"
 
+#include "unit/AuthPluginTest.hpp"
 #include "unit/EioPacketTest.hpp"
 #include "unit/EngineConfigTest.hpp"
 #include "unit/SioServerTest.hpp"
@@ -21,6 +22,7 @@
 #include "unit/UtilTest.hpp"
 #include "unit/WireTest.hpp"
 
+SIO_REGISTER_TEST(AuthPluginTest, AuthPluginTest);
 SIO_REGISTER_TEST(EioPacketTest, EioPacketTest);
 SIO_REGISTER_TEST(EngineConfigTest, EngineConfigTest);
 SIO_REGISTER_TEST(SioServerTest, SioServerTest);

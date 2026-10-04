@@ -16,6 +16,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 ################################################################################
 
 set(sio_unit_tests
+    AuthPluginTest
     EioPacketTest
     EngineConfigTest
     SioServerTest
@@ -51,6 +52,7 @@ endforeach()
 ################################################################################
 
 set(sio_integration_tests
+    AuthTest
     ConnectionCloseTest
     EngineIoTest
     NamespacePolicyTest

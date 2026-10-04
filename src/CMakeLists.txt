@@ -8,6 +8,7 @@ add_library(oatpp-socketio SHARED
     eio/connection.cpp
     eio/messagePool.cpp
     eio/wsConnection.cpp
+    sio/auth.cpp
     sio/space.cpp
     sio/wire.cpp
     sio/adapter.cpp
