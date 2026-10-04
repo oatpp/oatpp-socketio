@@ -92,7 +92,11 @@ void SocketIoTest::onRun() {
     SIO_ASSERT(other.open());
     SIO_ASSERT(other.sioConnect("/chat"));
 
-    SIO_ASSERT(inChat.post("2[\"chatmsg\",1]"));
+    // the namespace is part of every packet on a non-root namespace - that
+    // field is how one connection multiplexes several namespaces, so a client
+    // does not send a bare "2[...]" here. (Sent unprefixed, the packet decodes
+    // to the root namespace and this test silently checks the wrong thing.)
+    SIO_ASSERT(inChat.post("2/chat,[\"chatmsg\",1]"));
     const std::string received = other.poll();
     SIO_ASSERT(received.find("2/chat,[\"chatmsg\",1]") != std::string::npos);
   }
