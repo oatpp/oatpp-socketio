@@ -70,11 +70,11 @@ public:
    * @param delivered optional out: body of a successful poll, so that probing
    *        does not silently swallow a queued message.
    *
-   * @note This takes the connection's single long-poll slot. The server has no
-   *       server-side long-poll timeout, so a probe that times out leaves the
-   *       server still holding that request - and the server closes a
-   *       connection that sends a second poll while one is outstanding. Issue
-   *       at most one probe between messages, or use waitForClose().
+   * @note A connection has one outstanding long-poll slot. A probe that times
+   *       out leaves the server still holding that request until it ends the
+   *       response (now bounded by pingInterval), and a poll sent meanwhile is
+   *       refused with 400 - the connection survives, but the probe reads
+   *       nothing. Prefer waitForClose() when waiting for the server to act.
    */
   ConnState state(std::string* delivered = nullptr, int timeoutMs = 1500);
 

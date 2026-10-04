@@ -1,11 +1,14 @@
 #include "ConnectionCloseTest.hpp"
 
+#include "RawHttpClient.hpp"
 #include "RawWsClient.hpp"
 #include "SioClient.hpp"
 #include "TestAssert.hpp"
 #include "TestConfig.hpp"
 
+#include <chrono>
 #include <string>
+#include <thread>
 
 using namespace siotest;
 
@@ -116,5 +119,40 @@ void ConnectionCloseTest::onRun() {
 
     // the closed one cannot even poll any more
     SIO_ASSERT(stale.state() == PollClient::ConnState::Closed);
+  }
+
+  // ---------------------------------------------------------------------------
+  // a second poll while one is pending is refused, and surviving it is the
+  // point
+  //
+  // A connection gets exactly one outstanding long-poll, so refusing the
+  // overlap is correct. It used to also close the connection, which meant a
+  // client that re-polled after its own client-side timeout destroyed its own
+  // session - every client, eventually.
+  // ---------------------------------------------------------------------------
+  {
+    PollClient client(g_testPort);
+    SIO_ASSERT(client.open());
+    SIO_ASSERT(client.sioConnect("/"));
+
+    const std::string pollPath =
+        "/socket.io/?EIO=4&transport=polling&sid=" + client.sid();
+
+    // hold a poll open; nothing is queued, so the server keeps it
+    std::thread holder([&] {
+      httpRequest(g_testPort, "GET", pollPath, std::string(), 2000);
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    const RawResponse overlap =
+        httpRequest(g_testPort, "GET", pollPath, std::string(), 1000);
+    SIO_ASSERT_EQ(overlap.status, 400);
+
+    holder.join();
+
+    // Liveness is checked with a POST, not a poll: the held poll is still
+    // outstanding server-side, and that slot is what is under test here.
+    SIO_ASSERT(client.post("2[\"afteroverlap\",1]"));
+    client.close();
   }
 }
