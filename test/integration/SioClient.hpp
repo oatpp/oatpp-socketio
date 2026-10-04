@@ -25,6 +25,16 @@ class PollClient {
 public:
   explicit PollClient(unsigned short port) : m_port(port) {}
 
+  /**
+   * Sends an engine.io CLOSE unless close() was already called, so a test
+   * cannot leak a session into the next one. Long-polling has no socket for
+   * the server to notice a disconnect on, so without this the engine keeps the
+   * sid (and the space keeps its subscription) until the ping timeout - minutes
+   * - and every later broadcast fans out to the stale session too. Opt out with
+   * autoClose(false).
+   */
+  ~PollClient();
+
   /** engine.io handshake (GET without sid). @return false on failure */
   bool open();
 
@@ -76,13 +86,16 @@ public:
 
   /**
    * Send an engine.io CLOSE ("1"), which makes the server drop the connection
-   * and forget the sid. Call at the end of a test that connected, so the next
-   * one does not inherit the leftover session.
+   * and forget the sid. Best effort and non-throwing: it fails quietly if the
+   * server is already gone, which is the normal outcome in a destructor.
    */
-  bool close();
+  bool close(int timeoutMs = 2000);
 
   /** true once the connection was seen closed, or close() was called */
   bool closed() const { return m_closed; }
+
+  /** let the destructor close the session for you (default: true) */
+  void autoClose(bool enabled) { m_autoClose = enabled; }
 
   const std::string& sid() const { return m_sid; }
   const std::string& sioSid() const { return m_sioSid; }
@@ -94,6 +107,7 @@ private:
   std::string m_sioSid;
   std::string m_openPacket;
   bool m_closed = false;
+  bool m_autoClose = true;
 };
 
 }  // namespace siotest

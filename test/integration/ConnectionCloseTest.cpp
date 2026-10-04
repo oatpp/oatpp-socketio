@@ -87,4 +87,34 @@ void ConnectionCloseTest::onRun() {
     SIO_ASSERT(client.state(&delivered) == PollClient::ConnState::Alive);
     client.close();
   }
+
+  // ---------------------------------------------------------------------------
+  // a closed session is really gone: it must not keep receiving broadcasts
+  //
+  // This is what keeps the suite order-independent. A long-poll session that
+  // is merely abandoned stays in the engine until the ping timeout - minutes -
+  // and every broadcast in a later test fans out to it as well.
+  // ---------------------------------------------------------------------------
+  {
+    PollClient stale(g_testPort);
+    SIO_ASSERT(stale.open());
+    SIO_ASSERT(stale.sioConnect("/"));
+    stale.close();
+
+    PollClient sender(g_testPort);
+    PollClient receiver(g_testPort);
+    SIO_ASSERT(sender.open());
+    SIO_ASSERT(sender.sioConnect("/"));
+    SIO_ASSERT(receiver.open());
+    SIO_ASSERT(receiver.sioConnect("/"));
+
+    SIO_ASSERT(sender.post("2[\"isolation\",1]"));
+
+    std::string got;
+    SIO_ASSERT(receiver.state(&got) == PollClient::ConnState::Alive);
+    SIO_ASSERT(got.find("2[\"isolation\",1]") != std::string::npos);
+
+    // the closed one cannot even poll any more
+    SIO_ASSERT(stale.state() == PollClient::ConnState::Closed);
+  }
 }

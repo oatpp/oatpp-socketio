@@ -151,16 +151,29 @@ bool PollClient::waitForClose(int timeoutMs) {
   return false;  // still alive when the timeout expired
 }
 
-bool PollClient::close() {
+bool PollClient::close(int timeoutMs) {
   if (m_sid.empty()) {
     return false;
   }
   // engine.io CLOSE is a bare "1"; unlike a socket.io packet it is not wrapped
   // in an engine.io MESSAGE ("4")
   const RawResponse response =
-      httpRequest(m_port, "POST", pollingQuery(m_sid), "1");
+      httpRequest(m_port, "POST", pollingQuery(m_sid), "1", timeoutMs);
   m_closed = true;
   return response.ok && response.status == 200;
+}
+
+PollClient::~PollClient() {
+  if (!m_autoClose || m_closed || m_sid.empty()) {
+    return;
+  }
+  // Destructors run cleanup, they do not report: a server that already went
+  // away is the normal case here, and throwing from here would take the whole
+  // test binary down and hide the real failure.
+  try {
+    close(1000);
+  } catch (...) {
+  }
 }
 
 }  // namespace siotest
