@@ -125,8 +125,10 @@ one, so forgetting to configure one fails open rather than locking everyone
 out, and `setAuthPlugin(nullptr)` is ignored with a warning. `mayPublish()`
 defaults to allow and can only narrow what a connection may do: the check
 that a connection may only publish into namespaces it actually joined is not
-configurable and is not a plugin's to switch off. Install the plugin before
-`webApiStart()`.
+configurable and is not a plugin's to switch off. Swapping a plugin while
+traffic is running is safe — each connect and publish works from its own copy
+of the pointer — but installing it before `webApiStart()` is still the tidy
+thing to do.
 
 ## Testing
 
@@ -170,15 +172,20 @@ behaviour and see whether anything notices:
 
 - Inbound socket.io packets: `connect` and `event` are handled; `disconnect`,
   `ack`, `connect_error` and both binary packet types are logged and ignored.
-- `maxPayload` is advertised in the engine.io OPEN packet and not enforced on
-  inbound POST bodies or websocket frames.
-- The namespace registry is written at start-up and read from the request
-  path; it is not synchronised. `newSpace()`/`dropSpace()`/`setAuthPlugin()`
-  are start-up or administration operations. Turning auto-create on moves a
-  registry write onto the request path and is not safe under concurrent
-  connects.
+  A client that leaves a namespace the polite way therefore leaves its
+  subscription behind until the transport goes away.
 - A refused publish is silent: if the client asked for an ack, its ack
   callback is never called.
+- Long-polling ends an idle poll with an empty `200`; the reference writes a
+  `ping` onto the outstanding poll instead.
+- The wire codec is more lenient than the reference decoder in two places
+  (`2/chat["x"]` and `2/["x"]`); see `sio/wire.hpp`.
+- `Space::size()` returns `int` built from a `size_t`.
+
+The namespace registry and the per-namespace subscription maps are
+synchronised, so declaring, retiring and joining namespaces under traffic is
+supported; `dropSpace()` refuses a namespace that has members, and the check
+and the removal are atomic against a join.
 
 ## Acknowledgements
 
