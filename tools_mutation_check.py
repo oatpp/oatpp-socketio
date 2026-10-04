@@ -17,6 +17,10 @@ to its old, exploitable default and the integration test did not care.
 Exits non-zero if any mutation went unnoticed. Files are restored even when a
 build or a test blows up; if the script is killed hard, `git diff` shows what
 is left behind.
+
+Do not `git commit` while this is running. It edits the working tree, and an
+`git add -A` in the middle of it commits a mutation - which has happened, and
+looks exactly like an innocent one-line change in `git show --stat`.
 """
 import os
 import subprocess
@@ -52,8 +56,8 @@ MUTATIONS = [
 
     ("auth-check-skipped",
      "src/sio/sioServer.cpp",
-     "    if (!auth->mayConnect(spaceName, listener, reason)) {",
-     "    if (false && !auth->mayConnect(spaceName, listener, reason)) {",
+     "    if (!plugin->mayConnect(spaceName, listener, reason)) {",
+     "    if (false && !plugin->mayConnect(spaceName, listener, reason)) {",
      ["unit.AuthPluginTest", "integration.AuthTest"]),
 
     ("out-params-not-cleared",
