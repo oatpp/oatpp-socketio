@@ -151,18 +151,27 @@ void SioAdapter::onSioConnect(const std::string& connTo)
     bool success = parsePacket(connTo, packet);
 
     std::string sioId;
-    auto self = eioConn->getSio();
+    std::string reason;
     if (success) {
+        auto self = eioConn->getSio();
         success = SioServer::serverInstance().connectToSpace(packet.nsp, self,
-                                                             sioId);
+                                                            sioId, reason);
+    } else {
+        reason = "Invalid connect packet";
     }
 
     auto msg = std::make_shared<oatpp_sio::Message>();
     if (success) {
         msg->body = encodeConnectAck(packet.nsp, sioId);
     } else {
-        OATPP_LOGw("SADAP", "connect refused: |{}|", connTo);
-        msg->body = encodeDisconnect(packet.nsp);
+        // CONNECT_ERROR, not DISCONNECT. A refused namespace is reported to
+        // the socket.io layer, which surfaces it as a `connect_error` event -
+        // DISCONNECT would look like a clean shutdown of a session the client
+        // never had. The engine.io connection stays up: one transport carries
+        // the namespaces this client *is* allowed on, and the reference keeps
+        // it for exactly that reason.
+        OATPP_LOGw("SADAP", "connect to '{}' refused: {}", packet.nsp, reason);
+        msg->body = encodeConnectError(packet.nsp, reason);
     }
     this->eioConn->handleMessage(msg);
 }

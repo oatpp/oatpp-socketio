@@ -25,6 +25,7 @@
 #include "oatpp/Environment.hpp"
 
 #include "oatpp_sio/webapi/webApp.hpp"
+#include "oatpp_sio/sio/sioServer.hpp"
 #include "oatpp_sio/sio/space.hpp"
 #include "oatpp_sio/eio/engineIo.hpp"
 
@@ -82,6 +83,16 @@ int main(int argc, const char* argv[])
 
     // // configure the engine.io stack for the test suite:
     oatpp_sio::eio::theEngine->setConfig(25000, 20000, 1000000);
+
+    // DONE INIT
+
+    // INIT socket.io
+
+    // Declare the namespaces this server serves. Clients are refused with
+    // "Invalid namespace" on any other name - the server does not invent
+    // namespaces because a client asked for one. The root namespace "/" is
+    // always there.
+    oatpp_sio::sio::SioServer::serverInstance().newSpace("/chat");
 
     // DONE INIT
 

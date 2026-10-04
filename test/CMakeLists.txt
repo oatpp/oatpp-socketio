@@ -24,16 +24,15 @@ set(sio_unit_tests
     WireTest
 )
 
-add_executable(sio-unit-tests
-    TestRunner.cpp
-    unit/TestMain.cpp
-    unit/EioPacketTest.cpp
-    unit/EngineConfigTest.cpp
-    unit/SioServerTest.cpp
-    unit/SpaceTest.cpp
-    unit/UtilTest.cpp
-    unit/WireTest.cpp
-)
+# The sources are derived from the test list, so that a test cannot be
+# registered with CTest (and in unit/TestMain.cpp) while being left out of the
+# binary - which fails at link time with "undefined reference to vtable".
+set(sio_unit_test_sources TestRunner.cpp unit/TestMain.cpp)
+foreach(_unit_test ${sio_unit_tests})
+    list(APPEND sio_unit_test_sources "unit/${_unit_test}.cpp")
+endforeach()
+
+add_executable(sio-unit-tests ${sio_unit_test_sources})
 
 target_include_directories(sio-unit-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(sio-unit-tests PRIVATE oatpp-socketio ${LIBS})
@@ -51,18 +50,28 @@ endforeach()
 #   ./build/test/sio-integration-tests WebSocketTest -V
 ################################################################################
 
-add_executable(sio-integration-tests
+set(sio_integration_tests
+    ConnectionCloseTest
+    EngineIoTest
+    NamespacePolicyTest
+    SocketIoTest
+    WebSocketTest
+    WebApiTest
+)
+
+# same as for the unit tests: the sources follow the test list
+set(sio_integration_test_sources
     TestRunner.cpp
     integration/TestMain.cpp
     integration/RawHttpClient.cpp
     integration/RawWsClient.cpp
     integration/SioClient.cpp
-    integration/ConnectionCloseTest.cpp
-    integration/EngineIoTest.cpp
-    integration/SocketIoTest.cpp
-    integration/WebSocketTest.cpp
-    integration/WebApiTest.cpp
 )
+foreach(_integration_test ${sio_integration_tests})
+    list(APPEND sio_integration_test_sources "integration/${_integration_test}.cpp")
+endforeach()
+
+add_executable(sio-integration-tests ${sio_integration_test_sources})
 
 target_include_directories(sio-integration-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(sio-integration-tests PRIVATE oatpp-socketio ${LIBS})

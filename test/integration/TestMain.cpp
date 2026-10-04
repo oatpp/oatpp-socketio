@@ -17,10 +17,12 @@
 
 #include "oatpp/Environment.hpp"
 #include "oatpp_sio/globals.hpp"
+#include "oatpp_sio/sio/sioServer.hpp"
 #include "oatpp_sio/webapi/webApp.hpp"
 
 #include "integration/ConnectionCloseTest.hpp"
 #include "integration/EngineIoTest.hpp"
+#include "integration/NamespacePolicyTest.hpp"
 #include "integration/SocketIoTest.hpp"
 #include "integration/WebApiTest.hpp"
 #include "integration/WebSocketTest.hpp"
@@ -38,6 +40,7 @@ const char* siotest::g_webRoot = "/tmp/oatpp-socketio-tests-web/";
 
 SIO_REGISTER_TEST(ConnectionCloseTest, ConnectionCloseTest);
 SIO_REGISTER_TEST(EngineIoTest, EngineIoTest);
+SIO_REGISTER_TEST(NamespacePolicyTest, NamespacePolicyTest);
 SIO_REGISTER_TEST(SocketIoTest, SocketIoTest);
 SIO_REGISTER_TEST(WebSocketTest, WebSocketTest);
 SIO_REGISTER_TEST(WebApiTest, WebApiTest);
@@ -62,6 +65,14 @@ int main(int argc, const char* argv[]) {
   state.enableSwaggerUi = true;
 
   oatpp_sio::webapi::webApiInit();
+
+  // Namespaces are declared by the application, not invented by the server
+  // when a client names one (that is what an attacker would do). The tests
+  // below use these two; SioServerTest covers the policy itself.
+  auto& sioServer = oatpp_sio::sio::SioServer::serverInstance();
+  sioServer.newSpace("/chat");
+  sioServer.newSpace("/rooms");
+
   oatpp_sio::webapi::webApiStart(state);
 
   if (!siotest::waitForPort(siotest::g_testPort)) {

@@ -53,6 +53,15 @@ inline void assertEquals(const A& actual, const B& expected,
     }                                                                      \
   } while (0)
 
+/** fail unless @p EXP is true, with a hand-written explanation */
+#define SIO_ASSERT_MSG(EXP, MSG)                                          \
+  do {                                                                     \
+    if (!(EXP)) {                                                          \
+      ::siotest::fail(std::string(__FILE__) + ":" + std::to_string(__LINE__), \
+                      std::string("assertion failed: ") + #EXP + "\n      " + (MSG)); \
+    }                                                                      \
+  } while (0)
+
 /** fail unless ACTUAL == EXPECTED (prints both values) */
 #define SIO_ASSERT_EQ(ACTUAL, EXPECTED)                                    \
   ::siotest::assertEquals((ACTUAL), (EXPECTED),                            \

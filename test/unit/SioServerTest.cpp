@@ -73,12 +73,77 @@ void SioServerTest::onRun() {
   }
   SIO_ASSERT(threw);
 
-  // -- unknown spaces are auto-created (AUTOCREATE_SPACES) -------------------
-  auto autoName = uniqueName("/auto");
-  auto autoSpace = srv.getSpace(autoName);
-  SIO_ASSERT(autoSpace != nullptr);
-  SIO_ASSERT_EQ(autoSpace->id(), autoName);
-  SIO_ASSERT(srv.getSpace(autoName) == autoSpace); // ...and stable
+  // -- an unknown namespace is not created by looking it up ------------------
+  {
+    const auto missing = uniqueName("/missing");
+    const size_t before = srv.spaceCount();
+
+    // findSpace() is the lookup for a request path: null, never an exception,
+    // and it does not create anything either
+    SIO_ASSERT(srv.findSpace(missing) == nullptr);
+    SIO_ASSERT_EQ(srv.spaceCount(), before);
+
+    bool threwOnMissing = false;
+    try {
+      srv.getSpace(missing);
+    } catch (const std::exception&) {
+      threwOnMissing = true;
+    }
+    SIO_ASSERT(threwOnMissing);
+    SIO_ASSERT_EQ(srv.spaceCount(), before); // a failed lookup creates nothing
+
+    // Auto-create is the opt-in for applications whose clients decide the set
+    // of namespaces. It is off by default because a client that may name a
+    // namespace may then make the server allocate one - and keep it.
+    SIO_ASSERT(!srv.autoCreateSpacesEnabled());
+    srv.setAutoCreateSpaces(true);
+    auto created = srv.getSpace(missing);
+    SIO_ASSERT(created != nullptr);
+    SIO_ASSERT_EQ(created->id(), missing);
+    SIO_ASSERT(srv.getSpace(missing) == created); // ...and stable
+    srv.setAutoCreateSpaces(false);
+    SIO_ASSERT(!srv.autoCreateSpacesEnabled());
+  }
+
+  // -- dropSpace() retires a namespace again ---------------------------------
+  {
+    const auto temp = uniqueName("/temp");
+    const size_t before = srv.spaceCount();
+
+    SIO_ASSERT(!srv.dropSpace(temp)); // was not there
+
+    srv.newSpace(temp);
+    SIO_ASSERT_EQ(srv.spaceCount(), before + 1);
+
+    auto member = std::make_shared<RecordingListener>("dropper");
+    std::string memberId;
+    SIO_ASSERT(srv.connectToSpace(temp, member, memberId));
+
+    // dropping a namespace somebody is in would orphan their subscription
+    SIO_ASSERT(!srv.dropSpace(temp));
+    SIO_ASSERT(srv.findSpace(temp) != nullptr);
+
+    SIO_ASSERT(srv.leaveSpace(temp, memberId));
+    SIO_ASSERT(srv.dropSpace(temp));
+    SIO_ASSERT(srv.findSpace(temp) == nullptr);
+    SIO_ASSERT_EQ(srv.spaceCount(), before);
+
+    // the root namespace is always there, like the reference server's default
+    SIO_ASSERT(!srv.dropSpace("/"));
+    SIO_ASSERT(srv.findSpace("/") != nullptr);
+  }
+
+  // -- connecting to a namespace that does not exist fails, quietly ----------
+  {
+    const auto nowhere = uniqueName("/nowhere");
+    auto listener = std::make_shared<RecordingListener>("ghost");
+    std::string sioId;
+    std::string reason;
+    SIO_ASSERT(!srv.connectToSpace(nowhere, listener, sioId, reason));
+    SIO_ASSERT(!reason.empty());
+    SIO_ASSERT_EQ(listener->subscribedCount, 0);
+    SIO_ASSERT(srv.findSpace(nowhere) == nullptr);
+  }
 
   // -- connectToSpace subscribes + notifies ----------------------------------
   auto listener = std::make_shared<RecordingListener>("listener-1");
