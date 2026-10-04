@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mutex>
 #include <string>
 #include <unordered_map>
 
@@ -19,7 +20,33 @@ namespace sio {
 class SioServer
 {
     static SioServer* universe;
+
+    /**
+     * The namespace registry, and the lock that makes it usable from more than
+     * one thread. It guards the map, the auto-create flag and the plugin
+     * pointer - the mutable state of the server.
+     *
+     * Every read of and every write to that state happens with stateLock held.
+     * Two rules keep that from turning into a deadlock:
+     *
+     *  - the critical sections are map operations and pointer copies. Nothing
+     *    else is called while holding the lock except Space's own membership
+     *    functions, which take Space::lock and return, so the order is always
+     *    registry -> space and never the other way round (Space does not know
+     *    this class exists, so the order cannot be inverted by accident). No
+     *    listener and no auth-plugin callback ever runs under the lock - a
+     *    plugin is free to call back into the server;
+     *  - it is a plain std::mutex, not an oatpp::async::Lock: the sections are
+     *    short and never block, and oatpp's own locks must not be taken in
+     *    thread-blocking mode from inside a coroutine.
+     */
     std::unordered_map<std::string, Space::Ptr> mySpaces;
+    mutable std::mutex stateLock;
+
+    /** lookup with stateLock already held */
+    Space::Ptr findSpaceLocked(const std::string& id) const;
+    /** creation with stateLock already held */
+    Space::Ptr newSpaceLocked(const std::string& id);
 
     /**
      * Whether an unknown namespace is created when a client asks for it.
@@ -65,11 +92,11 @@ class SioServer
      *
      * Refuses the root namespace "/" (always present, like the reference
      * server's default namespace) and any namespace that still has listeners,
-     * so dropping one can never silently orphan subscribers.
-     *
-     * Like newSpace(), this is a start-up / administration operation: the
-     * registry is not synchronised against the request path, because in normal
-     * use it is written once and only read afterwards.
+     * so dropping one cannot silently orphan subscribers. The emptiness check
+     * and the removal are one critical section, and a join takes the same lock,
+     * so a namespace cannot go away between "is anybody in it?" and its being
+     * retired - which is the race that makes retiring namespaces under traffic
+     * interesting.
      *
      * @return true if it was removed, false if it was not there or was
      *         refused.
@@ -77,33 +104,31 @@ class SioServer
     bool dropSpace(const std::string& id);
 
     /** how many namespaces are registered (diagnostics and tests) */
-    size_t spaceCount() const { return mySpaces.size(); }
+    size_t spaceCount() const;
 
     /**
      * Let unknown namespaces be created on first connect.
      *
      * Off by default; turn it on only where clients, not the application,
-     * decide the set of namespaces. Note that turning it on moves a write to
-     * the namespace registry onto the request path - see the note on
-     * dropSpace() about what that costs in terms of synchronisation.
+     * decide the set of namespaces. That means a registry write per new name on
+     * the request path, which is what the registry lock is for.
      */
-    void setAutoCreateSpaces(bool enable) { autoCreateSpaces = enable; }
-    bool autoCreateSpacesEnabled() const { return autoCreateSpaces; }
+    void setAutoCreateSpaces(bool enable);
+    bool autoCreateSpacesEnabled() const;
 
     /**
      * Install the authentication plugin. A null plugin is not accepted - the
      * always-allow default is restored instead, so forgetting to configure one
      * fails open the way it always has rather than locking everyone out.
      *
-     * Like newSpace()/dropSpace(), this is a start-up operation: the plugin is
-     * read on every connect and publish from the threads serving those
-     * requests, and swapping it while traffic is running is not synchronised
-     * against them. Install it before webApiStart().
+     * Safe to call while traffic is running: every connect and publish takes
+     * its own copy of the pointer under the lock, so a plugin is never replaced
+     * underneath a decision, and a plugin may call back into the server.
      */
     void setAuthPlugin(AuthPlugin::Ptr plugin);
 
     /** the plugin in force; never null */
-    AuthPlugin::Ptr authPlugin() const { return auth; }
+    AuthPlugin::Ptr authPlugin() const;
 
     /**
      * Subscribe a listener to a namespace and notify it.

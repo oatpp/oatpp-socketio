@@ -14,7 +14,7 @@ static const bool dbg = false;
 
 void Space::addListener(SpaceListener::Ptr listener)
 {
-    oatpp::async::LockGuard guard(&lock);
+    std::lock_guard<std::mutex> guard(lock);
     // subscriptions are keyed by listener id; re-subscribing the same id
     // replaces the previous listener instead of silently doing nothing
     subscriptions[listener->id()] = listener;
@@ -22,13 +22,19 @@ void Space::addListener(SpaceListener::Ptr listener)
 
 void Space::removeListener(const std::string& id)
 {
-    oatpp::async::LockGuard guard(&lock);
+    std::lock_guard<std::mutex> guard(lock);
     subscriptions.erase(id);
 }
 
 SpaceListener::Ptr Space::getListener(const std::string& id) const
 {
-    // note: the map is keyed by listener id
+    // note: the map is keyed by listener id.
+    //
+    // This used to read the map with no lock at all, which is not a benign
+    // race with addListener()/removeListener(): an insert that rehashes while
+    // somebody is walking the buckets is a segfault, and leaveSpace() reads
+    // this map on every disconnect while other connections join and leave.
+    std::lock_guard<std::mutex> guard(lock);
     auto iter = subscriptions.find(id);
     if (iter != subscriptions.end()) {
         return iter->second;
@@ -46,7 +52,7 @@ void Space::publish(std::shared_ptr<Space> space, SpaceListener::Ptr sender,
     // not recursive - calling back into the space while holding it deadlocks.
     std::vector<SpaceListener::Ptr> targets;
     {
-        oatpp::async::LockGuard guard(&lock);
+        std::lock_guard<std::mutex> guard(lock);
         targets.reserve(subscriptions.size());
         for (const auto& entry : subscriptions) {
             targets.push_back(entry.second);
@@ -64,7 +70,7 @@ void Space::publishAsync(std::shared_ptr<Space> space,
 {
     std::vector<SpaceListener::Ptr> targets;
     {
-        oatpp::async::LockGuard guard(&lock);
+        std::lock_guard<std::mutex> guard(lock);
         targets.reserve(subscriptions.size());
         for (const auto& entry : subscriptions) {
             targets.push_back(entry.second);

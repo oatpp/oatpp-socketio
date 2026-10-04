@@ -97,6 +97,36 @@ MUTATIONS = [
      "        if (buffered + static_cast<unsigned long long>(size) > limit) {",
      "        if (false) {",
      ["integration.MaxPayloadTest"]),
+
+    ("registry-autocreate-unlocked",
+     "src/sio/sioServer.cpp",
+     "    {\n        std::lock_guard<std::mutex> guard(stateLock);\n        space = findSpaceLocked(spaceName);",
+     "    {\n        space = findSpaceLocked(spaceName);",
+     ["unit.RegistryConcurrencyTest"]),
+
+    ("registry-join-unlocked",
+     "src/sio/sioServer.cpp",
+     "        std::lock_guard<std::mutex> guard(stateLock);\n        if (findSpaceLocked(spaceName) != space) {",
+     "        if (false) {",
+     ["unit.RegistryConcurrencyTest"]),
+
+    ("space-getlistener-unlocked",
+     "src/sio/space.cpp",
+     "    std::lock_guard<std::mutex> guard(lock);\n    auto iter = subscriptions.find(id);",
+     "    auto iter = subscriptions.find(id);",
+     ["unit.RegistryConcurrencyTest"]),
+
+    ("space-addlistener-unlocked",
+     "src/sio/space.cpp",
+     "void Space::addListener(SpaceListener::Ptr listener)\n{\n    std::lock_guard<std::mutex> guard(lock);",
+     "void Space::addListener(SpaceListener::Ptr listener)\n{",
+     ["unit.RegistryConcurrencyTest"]),
+
+    ("space-removelistener-unlocked",
+     "src/sio/space.cpp",
+     "void Space::removeListener(const std::string& id)\n{\n    std::lock_guard<std::mutex> guard(lock);",
+     "void Space::removeListener(const std::string& id)\n{",
+     ["unit.RegistryConcurrencyTest"]),
 ]
 
 UNIT_BIN = "./build/test/sio-unit-tests"
@@ -114,11 +144,20 @@ def build():
     return rc == 0, out
 
 
+# Concurrency tests are probabilistic: one clean run of a racy program means
+# nothing. These are run several times and count as passing only if every run
+# passes.
+REPEAT = {"unit.RegistryConcurrencyTest": 5}
+
+
 def test_passes(name):
     binary = UNIT_BIN if name.startswith("unit.") else INTEGRATION_BIN
     arg = name.split(".", 1)[1]
-    rc, _ = run("{} {}".format(binary, arg))
-    return rc == 0
+    for _ in range(REPEAT.get(name, 1)):
+        rc, _ = run("{} {}".format(binary, arg))
+        if rc != 0:
+            return False
+    return True
 
 
 def check(mutation):

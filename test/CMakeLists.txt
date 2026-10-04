@@ -19,6 +19,7 @@ set(sio_unit_tests
     AuthPluginTest
     EioPacketTest
     EngineConfigTest
+    RegistryConcurrencyTest
     SioServerTest
     SpaceTest
     UtilTest

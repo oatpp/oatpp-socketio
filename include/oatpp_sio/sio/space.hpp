@@ -1,7 +1,8 @@
 #pragma once
 
-#include <string>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <unordered_map>
 
 // timer functionality...:
@@ -50,8 +51,24 @@ class Space
     Space& operator=(const Space&) = delete;
 
     std::unordered_map<std::string, SpaceListener::Ptr> subscriptions;
-    // lock for manipulations of the subscriptions map
-    oatpp::async::Lock lock;
+
+    /**
+     * Lock for the subscriptions map.
+     *
+     * A plain std::mutex rather than an oatpp::async::Lock. Every critical
+     * section here is a map operation: it does not block, and it never calls
+     * back into a listener (publish() takes a snapshot and delivers outside the
+     * lock), so holding it never keeps an executor thread busy. It also has to
+     * be takeable from getListener() and size(), which run on both plain
+     * threads and coroutines - and oatpp's coroutine lock must not be taken in
+     * thread-blocking mode from inside a coroutine, which is how the two forms
+     * of using one lock deadlock: the holder yields its coroutine, the waiter
+     * blocks the thread that coroutine needs.
+     *
+     * Order against SioServer's registry lock is registry -> space and never
+     * the other way round; Space does not know that class exists.
+     */
+    mutable std::mutex lock;
 
     OATPP_COMPONENT(std::shared_ptr<oatpp::async::Executor>, async, "ws");
 
@@ -66,12 +83,20 @@ class Space
         return subscriptions;
     }
 
-    int size() const { return subscriptions.size(); }
+    /** number of subscribers. Synchronised; returns int for now (a narrowing
+     *  the whole code base assumes, worth changing in one go) */
+    int size() const {
+        std::lock_guard<std::mutex> guard(lock);
+        return static_cast<int>(subscriptions.size());
+    }
 
     void addListener(SpaceListener::Ptr listener);
 
     void removeListener(const std::string& id);
 
+    /** @return the listener registered under @p id, or null. Synchronised -
+     *  reading the map while another thread inserts into it is a rehash under
+     *  your feet, not a benign race. */
     SpaceListener::Ptr getListener(const std::string& id) const;
 
     void publish(std::shared_ptr<Space> space, SpaceListener::Ptr sender,
