@@ -21,6 +21,8 @@
 
 #include "oatpp_sio/globals.hpp"
 
+#include <string>
+
 //class WebApiState;
 
 namespace oatpp_sio {
@@ -35,10 +37,32 @@ extern void addSwaggerServerUrl(const std::string& url, const std::string& name)
 /** initialize the oatpp web infrasturcture, register internal controllers. */
 extern void webApiInit();
 
+/**
+ * Interface address the web api listens on.
+ * Taken from the OATPP_SIO_HOST environment variable, default "0.0.0.0".
+ * Read once, when the connection provider component is created (i.e. by
+ * webApiInit()).
+ */
+extern std::string getListenHost();
+
+/**
+ * TCP port the web api listens on.
+ * Taken from the OATPP_SIO_PORT environment variable, default 8000.
+ */
+extern unsigned short getListenPort();
+
 /** start the actual oapp web frontend in it's own thread. webApiInit() must have been called first. */
 extern void webApiStart(WebApiState& state);
 
+/** stop the web frontend (see webApiStop() in webApi.cpp for the caveats) */
 extern void webApiStop();
+
+/**
+ * Release everything webApiInit() created: stops the executors and destroys
+ * the component container, which unregisters the oatpp components.
+ * Call after webApiStop() and before oatpp::Environment::destroy().
+ */
+extern void webApiDestroy();
 
 }  // namespace webapi
 }  // namespace oatpp_sio

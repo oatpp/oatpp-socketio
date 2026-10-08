@@ -15,12 +15,17 @@
 */
 #include <stdlib.h>
 
+#include "StopSignal.hpp"
+
 #include <chrono>
 #include <iostream>
 #include <string>
 #include <thread>
 
+#include "oatpp/Environment.hpp"
+
 #include "oatpp_sio/webapi/webApp.hpp"
+#include "oatpp_sio/sio/sioServer.hpp"
 #include "oatpp_sio/sio/space.hpp"
 #include "oatpp_sio/eio/engineIo.hpp"
 
@@ -36,7 +41,6 @@ int main(int argc, const char* argv[])
     cout << "starting" << endl;
     std::string confFile = "blah.xml";
 
-    srand(0xfeedcafe);
 
     for (int i = 1; i < argc; i++) {
         if (string(argv[i]) == "-c") {
@@ -68,27 +72,46 @@ int main(int argc, const char* argv[])
     // start the web server thread
     webApiStart(getGlobalState());
 
+    std::cout << "web api on http://localhost:"
+              << oatpp_sio::webapi::getListenPort()
+              << " (swagger ui: /swagger/ui, openapi: /api-docs/oas-3.0.0.json)"
+              << std::endl;
+
     // DONE INIT WEB FRONTEND
 
     // INIT engine.io
 
     // // configure the engine.io stack for the test suite:
-    oatpp_sio::eio::theEngine->setConfig(300, 200, 1e6);
+    oatpp_sio::eio::theEngine->setConfig(25000, 20000, 1000000);
 
     // DONE INIT
 
-    bool keepRunning = true;
-    int delay = 1;
-    do {
-        const auto start = std::chrono::high_resolution_clock::now();
-        std::this_thread::sleep_for(2000ms);
-        const auto end = std::chrono::high_resolution_clock::now();
-        const std::chrono::duration<double, std::milli> elapsed = end - start;
+    // INIT socket.io
 
-    } while (keepRunning);
+    // Declare the namespaces this server serves. Clients are refused with
+    // "Invalid namespace" on any other name - the server does not invent
+    // namespaces because a client asked for one. The root namespace "/" is
+    // always there.
+    oatpp_sio::sio::SioServer::serverInstance().newSpace("/chat");
+
+    // DONE INIT
+
+    // run until Ctrl-C or SIGTERM
+    oatpp_sio::app::installStopSignals();
+    cout << "running, press Ctrl-C to stop" << endl;
+    oatpp_sio::app::waitForStop();
 
     cout << "stopping" << endl;
     webApiStop();
+
+    cout << "\nEnvironment:\n";
+    cout << "objectsCount = " << oatpp::Environment::getObjectsCount() << "\n";
+    cout << "objectsCreated = " << oatpp::Environment::getObjectsCreated()
+         << "\n\n";
+
+    webApiDestroy();
+    oatpp::Environment::destroy();
+
     cout << "done" << endl;
 
     return 0;

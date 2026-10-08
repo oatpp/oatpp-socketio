@@ -1,15 +1,30 @@
 #include <memory>
 
-#include "oatpp/json/Serializer.hpp"
-#include "oatpp/json/ObjectMapper.hpp"
+#include "oatpp/base/Log.hpp"
 
 #include "oatpp_sio/sio/adapter.hpp"
 #include "oatpp_sio/sio/sioServer.hpp"
+#include "oatpp_sio/sio/wire.hpp"
 
-#include <iostream>
 using namespace std;
 
 using namespace oatpp_sio::sio;
+
+Space::Ptr SioAdapter::joinedSpace(const std::string& name) const
+{
+    auto it = mySpaces.find(name);
+    return it == mySpaces.end() ? Space::Ptr() : it->second;
+}
+
+void SioAdapter::dropConnection(const std::string& reason)
+{
+    OATPP_LOGw("SADAP", "protocol violation, dropping connection {}: {}", id(),
+               reason);
+    auto conn = eioConn;
+    if (conn) {
+        conn->shutdownConnection();
+    }
+}
 
 void SioAdapter::shutdown()
 {
@@ -38,17 +53,34 @@ void SioAdapter::left(std::shared_ptr<Space> space)
 void SioAdapter::onEioMessage(oatpp_sio::Message::Ptr msg)
 {
     OATPP_LOGi("SADAP", "SIo Packet... {}", msg->body);
+
+    // an empty packet carries no type - ignore it instead of reading past the
+    // end of the string
+    if (msg->body.empty()) {
+        OATPP_LOGw("SADAP", "empty socket.io packet, ignoring");
+        return;
+    }
+
+    // Hold a reference to ourselves for the duration of the call: handling a
+    // packet can drop the connection (a protocol violation does), and the
+    // connection holds the only strong reference to this adapter, so without
+    // this `this` could be destroyed while still executing.
+    const std::shared_ptr<SioAdapter> keep =
+        eioConn ? eioConn->getSio() : nullptr;
+
     // decode, then push
-    char pType = msg->body[0];
+    const char pType = msg->body[0];
+    const std::string rest = msg->body.substr(1);
+
     switch (pType) {
-        case SioPacketType::connect:
-            onSioConnect(msg->body.substr(1));
+        case static_cast<char>(PacketType::connect):
+            onSioConnect(rest);
             break;
-        case SioPacketType::event:
-            onSioEvent(msg->body.substr(1));
+        case static_cast<char>(PacketType::event):
+            onSioEvent(rest);
             break;
         default:
-            OATPP_LOGi("SADAP", "Unknown SIo Packet {} {}", pType, (char)pType);
+            OATPP_LOGi("SADAP", "Unknown SIo Packet type '{}'", pType);
     }
 }
 
@@ -61,109 +93,63 @@ void SioAdapter::onSioMessage(std::shared_ptr<Space> space, Ptr sender,
         OATPP_LOGi("SADAP", "MSG TO SELF {} : {}", sender->id(), id());
         return;
     }
-    // @TODO: encode packets here
+
     oatpp_sio::Message::Ptr m = std::make_shared<oatpp_sio::Message>(*msg);
-    if (space->id() != "/") {
-        m->body = "2" + space->id() + "," + m->body;
-    } else {
-        m->body = "2" + m->body;
-    }
+    m->body = encodeEvent(space->id(), m->body);
 
-    OATPP_LOGi("SADAP", "INCOMING SIo Message {} : {}", space->id(), m->body);
+    OATPP_LOGi("SADAP", "FORWARD SIo Message {} : {}", space->id(), m->body);
     eioConn->handleMessage(m);
-}
-
-static auto json = std::make_shared<oatpp::json::ObjectMapper>();
-
-static bool parseMsg(const std::string& data, std::string& nbin,
-                     std::string& nsp, std::string& ack, std::string& payload)
-{
-    unsigned int i = 0;
-    if (data[i] >= '0' && data[i] <= '9') {
-        // TODO: parse # binary packets of available.
-        unsigned int start = i;
-        for (; i < data.size() - 1; i++) {
-            if (data[i] < '0' || data[i] > '9') {
-                break;
-            }
-        }
-        if (data[i] != '-') {
-            OATPP_LOGw("PRS", "Parse error in # bin packets!");
-            return false;
-        }
-        if (i > start) {
-            nbin = data.substr(start, i - start);
-        }
-    }
-    if (data[i] == '/') {
-        // collect namespace:
-        unsigned int start = i;
-
-        for (; i < data.size() - 1; i++) {
-            if (data[i] == ',') {
-                break;
-            }
-        }
-        if (data[i] != ',') {
-            OATPP_LOGw("PRS", "Parse error in namespace!");
-            return false;
-        }
-        nsp = data.substr(start, i);
-        i++;  // jump over ','
-    } else {
-        nsp = "/";
-    }
-
-    if (data[i] >= '0' && data[i] <= '9') {
-        // parse ack id:
-        unsigned int start = i;
-        for (; i < data.size(); i++) {
-            if (data[i] < '0' || data[i] > '9') {
-                break;
-            }
-        }
-        if (i > start) {
-            ack = data.substr(start, i - start);
-        }
-    }
-
-    // rest is json data
-    payload = data.substr(i);
-
-    return true;
 }
 
 void SioAdapter::onSioEvent(const std::string& data)
 {
     OATPP_LOGi("SADAP", "onSioEvent |{}|", data);
-    std::string nbin = "";
-    std::string nsp = "/";
-    std::string ackId = "";
-    std::string payload = "{}";
 
-    bool success = parseMsg(data, nbin, nsp, ackId, payload);
+    WirePacket packet;
+    if (!parsePacket(data, packet)) {
+        // never publish or ack a packet we could not make sense of
+        OATPP_LOGw("SADAP", "malformed event packet, dropping: |{}|", data);
+        return;
+    }
 
-    OATPP_LOGi("SADAP", "onSioEvent EMIT |{}|", payload);
+    OATPP_LOGi("SADAP", "onSioEvent EMIT |{}|", packet.payload);
 
-    // publish to space
+    // The namespace is client-supplied, so it cannot be used to look up the
+    // global space registry: that lets any client publish into any other
+    // namespace just by naming it on the packet, and getSpace() creates the
+    // space on demand while it is at it. Only publish into spaces this
+    // connection joined. A packet naming one it did not is a protocol
+    // violation, and the reference server closes the connection over it.
+    auto space = joinedSpace(packet.nsp);
+    if (!space) {
+        dropConnection("event for namespace '" + packet.nsp + "' this connection did not join");
+        return;
+    }
+
+    // hold our own connection alive across the publish: a listener may drop it
+    const auto self = eioConn->getSio();
+
+    // The auth plugin, if the application installed one, gets a say on every
+    // publish as well. This is a policy layer *on top of* the membership check
+    // above - it can only narrow what a connection may do, never widen it. A
+    // refused publish is dropped quietly: the connection did nothing wrong at
+    // the protocol level, it just is not allowed to say this.
+    if (!SioServer::serverInstance().authPlugin()->mayPublish(packet.nsp, self)) {
+        OATPP_LOGw("SADAP", "publish to '{}' refused by auth plugin, dropping", packet.nsp);
+        return;
+    }
+
     {
-        auto self = eioConn->getSio();
         auto msg = std::make_shared<oatpp_sio::Message>();
-        msg->body = payload;
-        auto space = SioServer::serverInstance().getSpace(nsp);
+        msg->body = packet.payload;
         space->publish(space, self, msg);
     }
-    // ack message...:
-    if (success) {
-        std::string encoded;
-        encoded = "3";
-        if (nsp != "/") {  // encode namespace
-            encoded += nsp + ",";
-        }
-        encoded += ackId + "";
 
+    // ack the client - only if it asked for an ack. Sending "3" with an empty
+    // ack id confuses clients.
+    if (!packet.ack.empty()) {
         auto msg = std::make_shared<oatpp_sio::Message>();
-        msg->body = encoded;
+        msg->body = encodeAck(packet.nsp, packet.ack);
         this->eioConn->handleMessage(msg);
     }
 }
@@ -173,35 +159,31 @@ void SioAdapter::onSioConnect(const std::string& connTo)
 {
     OATPP_LOGi("SADAP", "onSioConnect... |{}|", connTo);
 
-    std::string nbin = "";
-    std::string space = "/";
-    std::string ackId = "";
-    std::string payload = "{}";
-
-    bool success = parseMsg(connTo, nbin, space, ackId, payload);
+    WirePacket packet;
+    bool success = parsePacket(connTo, packet);
 
     std::string sioId;
-    auto self = eioConn->getSio();
-    success &= SioServer::serverInstance().connectToSpace(space, self, sioId);
-
+    std::string reason;
     if (success) {
-        std::string encoded;
-
-        encoded = "0";
-        if (space != "/") {  // encode namespace
-            encoded += space + ",";
-        }
-        encoded += "{\"sid\":\"" + sioId + "\"}";
-
-        auto msg = std::make_shared<oatpp_sio::Message>();
-        msg->body = encoded;
-        this->eioConn->handleMessage(msg);
+        auto self = eioConn->getSio();
+        success = SioServer::serverInstance().connectToSpace(packet.nsp, self,
+                                                            sioId, reason);
     } else {
-        std::string encoded;  // -> disconnect
-        encoded = "1";        //{\"sid\":\"" + sioId + "\"}";
-
-        auto msg = std::make_shared<oatpp_sio::Message>();
-        msg->body = encoded;
-        this->eioConn->handleMessage(msg);
+        reason = "Invalid connect packet";
     }
+
+    auto msg = std::make_shared<oatpp_sio::Message>();
+    if (success) {
+        msg->body = encodeConnectAck(packet.nsp, sioId);
+    } else {
+        // CONNECT_ERROR, not DISCONNECT. A refused namespace is reported to
+        // the socket.io layer, which surfaces it as a `connect_error` event -
+        // DISCONNECT would look like a clean shutdown of a session the client
+        // never had. The engine.io connection stays up: one transport carries
+        // the namespaces this client *is* allowed on, and the reference keeps
+        // it for exactly that reason.
+        OATPP_LOGw("SADAP", "connect to '{}' refused: {}", packet.nsp, reason);
+        msg->body = encodeConnectError(packet.nsp, reason);
+    }
+    this->eioConn->handleMessage(msg);
 }

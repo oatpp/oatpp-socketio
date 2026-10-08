@@ -28,6 +28,7 @@
 #include "oatpp/macro/component.hpp"
 
 #include "oatpp_sio/webapi/swaggerComponent.hpp"
+#include "oatpp_sio/webapi/webApp.hpp"
 
 #include "oatpp_sio/eio/wsConnection.hpp"
 
@@ -90,8 +91,12 @@ class AppComponent
         std::shared_ptr<oatpp::network::ServerConnectionProvider>,
         serverConnectionProvider)
     ([] {
+        // host/port come from OATPP_SIO_HOST / OATPP_SIO_PORT (8000 default)
+        const std::string host = oatpp_sio::webapi::getListenHost();
+        const unsigned short port = oatpp_sio::webapi::getListenPort();
+
         return oatpp::network::tcp::server::ConnectionProvider::createShared(
-            {"0.0.0.0", 8000, oatpp::network::Address::IP_4});
+            {host.c_str(), port, oatpp::network::Address::IP_4});
     }());
 
     /**

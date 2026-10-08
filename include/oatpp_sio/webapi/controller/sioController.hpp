@@ -84,6 +84,9 @@ class SocketIoController : public oatpp::web::server::api::ApiController
         const bool dbg = true;
         oatpp_sio::eio::EioConnection::Ptr conn;
 
+        /** microsecond tick at which this request started holding the poll */
+        v_int64 waitStartedAt = 0;
+
         Action handleWebSocket()
         {
             using namespace oatpp_sio::eio;
@@ -167,16 +170,22 @@ class SocketIoController : public oatpp::web::server::api::ApiController
             //     return yieldTo(&SioGet::wait4Msgs);
             // }
             if (conn->hasLongPoll()) {
-                // another poll request pending. kick.
-                OATPP_LOGw("SIO", "SioGet {} handleLp DUP REQ", sid);
-                std::string ssid = sid;
-                conn->injectClose();
-                theEngine->removeConnection(ssid);
-                auto response =
-                    controller->createResponse(Status::CODE_400, "dup req");
+                // Another poll is already pending. Answer the overlap with 400
+                // and leave the connection alone, which is what the reference
+                // does (engine.io transports/polling.ts onPollRequest reports
+                // "overlap from client", answers 400, and keeps the
+                // connection). Closing it here, as this used to, meant that a
+                // client which re-polled after its own client-side timeout
+                // destroyed its own session.
+                OATPP_LOGw("SIO", "SioGet {} handleLp DUP REQ (rejected; "
+                                  "connection kept)",
+                           sid);
+                auto response = controller->createResponse(
+                    Status::CODE_400, "duplicate poll request");
                 return _return(response);
             }
             conn->setLongPoll(request);
+            waitStartedAt = oatpp::Environment::getMicroTickCount();
             return yieldTo(&SioGet::wait4Msgs);
         }
 
@@ -209,6 +218,24 @@ class SocketIoController : public oatpp::web::server::api::ApiController
                                msg);
                 auto response =
                     controller->createResponse(Status::CODE_200, msg);
+                response->putHeader("Content-Type", "text/plain");
+                return _return(response);
+            }
+
+            // A long-poll must not be held forever. The reference ends the
+            // response after pingInterval (with a ping) so the client can
+            // re-poll; holding it open indefinitely meant a client whose own
+            // timeout was shorter than forever - i.e. every client - either
+            // stalled or, on re-polling, tripped the overlap check above. An
+            // empty 200 is a valid "nothing to send" answer.
+            const v_int64 heldUs =
+                oatpp::Environment::getMicroTickCount() - waitStartedAt;
+            if (heldUs > (v_int64)theEngine->pingInterval * 1000) {
+                if (dbg)
+                    OATPP_LOGd("CTRL", "SioGet {} wait4Msgs held {}us, ending",
+                               sid, heldUs);
+                conn->clearLongPoll();
+                auto response = controller->createResponse(Status::CODE_200, "");
                 response->putHeader("Content-Type", "text/plain");
                 return _return(response);
             }
@@ -257,10 +284,23 @@ class SocketIoController : public oatpp::web::server::api::ApiController
         {
             // assert conn is set!
 
-            if (!body->size()) {
+            if (!body || !body->size()) {
                 auto response =
                     controller->createResponse(Status::CODE_400, "no body");
                 return _return(response);
+            }
+
+            // The second of the two maxPayload checks: Content-Length is a
+            // claim, and a chunked body never declared one at all, so the size
+            // that actually arrived is what decides here.
+            if (oatpp_sio::eio::theEngine->exceedsMaxPayload(
+                    static_cast<long long>(body->size()))) {
+                OATPP_LOGw("SIO",
+                           "POST body of {} bytes exceeds maxPayload {}, refusing",
+                           body->size(),
+                           oatpp_sio::eio::theEngine->maxPayload);
+                return _return(controller->createResponse(
+                    Status::CODE_413, "payload too large"));
             }
 
             conn->handleLpPostMessage(body);
@@ -298,6 +338,20 @@ class SocketIoController : public oatpp::web::server::api::ApiController
             if (dbg)
                 OATPP_LOGd("SIO", "SioPost {} POST ok {} t {} s {}", sid, sio,
                            transport);
+
+            // First maxPayload check, before the body is read: a client that
+            // ignores what the OPEN packet advertises must not be able to make
+            // this server buffer whatever it decides to send. Only the request
+            // is refused - the session survives, because an oversized body is
+            // not a protocol violation on the connection.
+            const long long declared = declaredBodyLength(request);
+            if (theEngine->exceedsMaxPayload(declared)) {
+                OATPP_LOGw("SIO",
+                           "POST declares {} bytes, maxPayload is {}, refusing",
+                           declared, theEngine->maxPayload);
+                return _return(controller->createResponse(
+                    Status::CODE_413, "payload too large"));
+            }
 
             return request->readBodyToStringAsync().callbackTo(
                 &SioPost::withBody);
