@@ -18,7 +18,9 @@
 #include <iostream>
 #include <thread>
 
+#include "oatpp/async/Executor.hpp"
 #include "oatpp/network/Server.hpp"
+#include "oatpp/network/tcp/client/ConnectionProvider.hpp"
 
 #include "oatpp-swagger/AsyncController.hpp"
 #include "oatpp-swagger/Controller.hpp"
@@ -29,12 +31,27 @@
 
 #include "oatpp_sio/webapi/appComponent.hpp"
 #include "oatpp_sio/webapi/swaggerComponent.hpp"
+#include "oatpp_sio/webapi/webApp.hpp"
+
+#include <condition_variable>
+#include <cstdlib>
+#include <functional>
+#include <memory>
+#include <mutex>
 
 // #include "oatpp_sio/globals.hpp"
 
 static oatpp::network::Server *theServer = nullptr;
+static std::shared_ptr<oatpp::network::ServerConnectionProvider> theConnectionProvider;
 static std::thread *runner = nullptr;
 static oatpp_sio::WebApiState *systemState = nullptr;
+
+/* startup handshake: webApiStop() must not race with the runner thread
+ * bringing the server up */
+static std::mutex startupMutex;
+static std::condition_variable startupCv;
+static bool serverUp = false;
+static bool stopRequested = false;
 
 using namespace std;
 
@@ -103,13 +120,32 @@ class WebApi
      * HTTP connection handler */
         oatpp::network::Server server(connectionProvider, connectionHandler);
         theServer = &server;
+        theConnectionProvider = connectionProvider;
+
+        {
+            std::lock_guard<std::mutex> guard(startupMutex);
+            serverUp = true;
+            if (stopRequested) {
+                // stop() was called before we got up and running - do not
+                // enter the (blocking) accept loop at all
+                OATPP_LOGi("WEBAPI", "stop requested before startup");
+                theServer = nullptr;
+                theConnectionProvider.reset();
+                return;
+            }
+        }
+        startupCv.notify_all();
 
         /* Print info about server port */
         OATPP_LOGi("WEBAPI", "Server running on port {}",
                    connectionProvider->getProperty("port").toString());
 
-        /* Run server */
-        server.run();
+        /* Run server. The condition is re-checked before every accept, so a
+         * stopRequested that raced with the startup still stops the loop
+         * instead of blocking in accept() forever. The explicit std::function
+         * avoids the deprecated run(bool) overload. */
+        const std::function<bool()> stillRunning = [] { return !stopRequested; };
+        server.run(stillRunning);
 
         OATPP_LOGi("WEBAPI", "Server stopped on port {}",
                    connectionProvider->getProperty("port").toString());
@@ -138,11 +174,9 @@ void addSwaggerServerUrl(const std::string &url, const std::string &name)
     SwaggerComponent::addSwaggerServerUrl(url, name);
 }
 
-int webApiInit()
+void webApiInit()
 {
     api = new WebApi();
-
-    return 0;
 }
 
 /**
@@ -154,18 +188,8 @@ static int webApiRunner()
 
     api->run();
 
-    /* Print how much objects were created during app running, and what have
-   * left-probably leaked */
-    /* Disable object counting for release builds using '-D
-   * OATPP_DISABLE_ENV_OBJECT_COUNTERS' flag for better performance */
-    std::cout << "\nEnvironment:\n";
-    std::cout << "objectsCount = " << oatpp::Environment::getObjectsCount()
-              << "\n";
-    std::cout << "objectsCreated = " << oatpp::Environment::getObjectsCreated()
-              << "\n\n";
-
-    oatpp::Environment::destroy();
-
+    // note: tearing down the oatpp Environment is up to the application - a
+    // library must not shut down the environment of its caller
     return 0;
 }
 
@@ -178,14 +202,107 @@ void webApiStart(oatpp_sio::WebApiState &state)
 
 void webApiStop()
 {
+    {
+        std::unique_lock<std::mutex> lock(startupMutex);
+        stopRequested = true;
+        if (!serverUp) {
+            // give the runner thread a moment to publish the server (or to
+            // notice that it must not start it at all)
+            startupCv.wait_for(lock, std::chrono::seconds(5),
+                               [] { return serverUp; });
+        }
+    }
+
     if (theServer) {
         theServer->stop();
-        theServer = nullptr;
 
-        if (runner) {
+        // Server::stop() only sets a status flag. The server thread sits in
+        // accept(), which does not return when the status changes - and on
+        // Linux closing the listening socket does not reliably wake it
+        // either. One connection makes the accept return, the main loop then
+        // sees the new status and leaves, which unblocks the join below.
+        try {
+            auto poke = oatpp::network::tcp::client::ConnectionProvider::createShared(
+                {"127.0.0.1", getListenPort(), oatpp::network::Address::IP_4});
+            poke->get();
+        } catch (const std::exception& e) {
+            OATPP_LOGd("WEBAPI", "could not wake the accept loop: {}", e.what());
         }
+    }
+
+    if (theConnectionProvider) {
+        theConnectionProvider->stop();
+    }
+
+    theServer = nullptr;
+    theConnectionProvider.reset();
+
+    if (runner) {
+        if (runner->joinable()) {
+            runner->join();
+        }
+        delete runner;
         runner = nullptr;
     }
+}
+
+void webApiDestroy()
+{
+    if (api == nullptr) {
+        return;
+    }
+
+    // stop the executors the components created before they are destroyed -
+    // ~Executor() on a running executor aborts the process
+    const auto stopExecutor = [](const std::shared_ptr<oatpp::async::Executor>& executor) {
+        if (executor) {
+            executor->stop();
+            executor->join();
+        }
+    };
+
+    {
+        OATPP_COMPONENT(std::shared_ptr<oatpp::async::Executor>, httpExecutor, "http");
+        stopExecutor(httpExecutor);
+    }
+    {
+        OATPP_COMPONENT(std::shared_ptr<oatpp::async::Executor>, wsExecutor, "ws");
+        stopExecutor(wsExecutor);
+    }
+
+    // destroys the AppComponent, which unregisters the oatpp components so
+    // that oatpp::Environment::destroy() no longer sees them as leaking
+    delete api;
+    api = nullptr;
+}
+
+std::string getListenHost()
+{
+    const char* host = std::getenv("OATPP_SIO_HOST");
+    if (host != nullptr && *host != '\0') {
+        return std::string(host);
+    }
+    return std::string("0.0.0.0");
+}
+
+unsigned short getListenPort()
+{
+    const unsigned short defaultPort = 8000;
+
+    const char* port = std::getenv("OATPP_SIO_PORT");
+    if (port == nullptr || *port == '\0') {
+        return defaultPort;
+    }
+
+    char* end = nullptr;
+    const long value = std::strtol(port, &end, 10);
+    if (end == port || *end != '\0' || value <= 0 || value > 65535) {
+        OATPP_LOGw("WEBAPI",
+                   "invalid OATPP_SIO_PORT '{}', using {}", port,
+                   defaultPort);
+        return defaultPort;
+    }
+    return static_cast<unsigned short>(value);
 }
 
 }  // namespace webapi

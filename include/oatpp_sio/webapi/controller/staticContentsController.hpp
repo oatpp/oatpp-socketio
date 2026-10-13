@@ -24,7 +24,70 @@
 
 #include "oatpp_sio/globals.hpp"
 
+#include <filesystem>
+#include <string>
+#include <system_error>
+
 #include OATPP_CODEGEN_BEGIN(ApiController)  //<-- Begin Codegen
+
+namespace {
+
+/**
+ * Resolve @p path inside @p root and return it only if it really lands inside
+ * @p root. Returns "" when it escapes, so the caller answers 404.
+ *
+ * The request path is attacker-controlled and arrives verbatim - oatpp does
+ * not normalise it and a client may send anything - so concatenating it onto
+ * the web root and opening the result used to serve /etc/passwd for
+ * `GET /../../etc/passwd`. Canonicalising resolves "." and ".." *and* follows
+ * symlinks, and the result is then compared against the root on path-component
+ * boundaries rather than as a string prefix.
+ */
+inline std::string resolveInsideRoot(const std::string& root,
+                                     const std::string& path)
+{
+    namespace fs = std::filesystem;
+
+    // loadFromFile() takes a const char*, so an embedded NUL would truncate
+    // the path and open something other than what was checked
+    if (path.find('\0') != std::string::npos) {
+        return std::string();
+    }
+
+    std::error_code ec;
+    const auto canonicalRoot = fs::weakly_canonical(root, ec);
+    if (ec) {
+        return std::string();  // no root, no jail
+    }
+
+    // a request path starts with '/', which here means "below the root" and
+    // never "absolute"
+    std::string relative = path;
+    while (!relative.empty() && relative.front() == '/') {
+        relative.erase(0, 1);
+    }
+
+    const auto resolved = fs::weakly_canonical(canonicalRoot / relative, ec);
+    if (ec) {
+        return std::string();
+    }
+
+    const std::string rootStr = canonicalRoot.generic_string();
+    const std::string resolvedStr = resolved.generic_string();
+
+    if (resolvedStr.size() == rootStr.size()) {
+        return resolvedStr;
+    }
+    // require a component boundary: "/srv/web" must not match "/srv/websecret"
+    if (resolvedStr.size() > rootStr.size() &&
+        resolvedStr.compare(0, rootStr.size(), rootStr) == 0 &&
+        resolvedStr[rootStr.size()] == '/') {
+        return resolvedStr;
+    }
+    return std::string();
+}
+
+}  // namespace
 
 /**
  * controller for static web contents.
@@ -83,19 +146,22 @@ class StaticContentsController : public oatpp::web::server::api::ApiController
             if (path.find('?') >= 0) {
                 path = path.substr(0, path.find('?'));
             }
-            // TODO: check jail escape sequences.
 
-            // We will check the file if exist and send the index.html in case of
-            // not
-            OATPP_LOGd("WEB", "GET {}", theState.webRoot + path);
-            auto file =
-                oatpp::String::loadFromFile((theState.webRoot + path).c_str());
+            // Resolve inside the web root *before* anything opens it. A path
+            // that walks out of the root is answered exactly like a missing
+            // file, so a traversal attempt confirms nothing.
+            const std::string resolved = resolveInsideRoot(theState.webRoot, path);
+            OATPP_ASSERT_HTTP(!resolved.empty(), Status::CODE_404,
+                              "File not found");
+
+            OATPP_LOGd("WEB", "GET {}", resolved);
+            auto file = oatpp::String::loadFromFile(resolved.c_str());
             // Send 404 not found in case of no file
             OATPP_ASSERT_HTTP(file.get() != nullptr, Status::CODE_404,
                               "File not found");
 
             // As file already found, we can search the content type
-            const std::string contentType = getContentType(path);
+            const std::string contentType = getContentType(resolved);
 
             // Creating the response
             auto response = controller->createResponse(Status::CODE_200, file);

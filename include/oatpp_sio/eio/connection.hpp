@@ -14,6 +14,7 @@
 
 #include "oatpp_sio/eio/engineIo.hpp"
 #include "oatpp_sio/eio/messageReceiver.hpp"
+#include "oatpp_sio/eio/packet.hpp"
 
 #include "oatpp_sio/sio/adapter.hpp"
 
@@ -28,17 +29,7 @@ class SioAdapter;
 
 namespace eio {
 
-typedef enum
-{
-    eioOpen = '0',
-    eioClose,
-    eioPing,
-    eioPong,
-    eioMessage,
-    eiouUgrade,
-    eioNoop,
-    eioBinary = 'b'
-} EioPacketType;
+/* EioPacketType + pktEncode() live in oatpp_sio/eio/packet.hpp */
 
 typedef enum
 {
@@ -138,8 +129,6 @@ class EioConnection : public MessageReceiver, public MessageConsumer
 
     // from our space
     virtual void handleMessage(std::shared_ptr<Message> msg);
-
-    std::string pktEncode(EioPacketType pkt, const std::string& msg);
 
     // unsubscribe from space, close wsconn, remove sid from engine
     void shutdownConnection();

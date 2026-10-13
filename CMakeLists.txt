@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.10)
 
-option(BUILD_TESTS "build tests" OFF)
+option(BUILD_TESTS "Build the test suite (unit + integration)" ON)
 option(ENABLE_CLIENT "Enable client code to be built" ON)
 option(LINK_ABSL "explicitely link abseil components" ON)
 
@@ -199,6 +199,15 @@ endif()
 add_subdirectory(src)
 
 add_subdirectory(app)
+
+################################################################################
+# tests
+################################################################################
+
+if(BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(test)
+endif()
 
 install(DIRECTORY "include/" DESTINATION ${INSTALL_INCLUDE_DIR})
 

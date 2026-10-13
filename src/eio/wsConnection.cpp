@@ -46,6 +46,28 @@ oatpp::async::CoroutineStarter WSConnection::readMessage(
 {
     // OATPP_LOGd(TAG, "readMsg s {}", size);
     if (size > 0) {  // message frame received
+        // maxPayload is more than advertising: this buffer grows with whatever
+        // arrives, so a client that ignores the limit it was handed would
+        // otherwise be able to size our memory usage. The reference closes the
+        // socket over an oversized message and so do we - the message is
+        // dropped, not truncated, because a half packet is not meaningful.
+        const auto limit =
+            static_cast<unsigned long long>(oatpp_sio::eio::theEngine->maxPayload);
+        const auto buffered =
+            static_cast<unsigned long long>(m_messageBuffer.getCurrentPosition());
+        if (buffered + static_cast<unsigned long long>(size) > limit) {
+            OATPP_LOGw(TAG,
+                       "ws message {}+{} bytes exceeds maxPayload {}, dropping connection",
+                       buffered, size, limit);
+            m_messageBuffer.setCurrentPosition(0);
+            if (recv) {
+                // takes the socket down as well, and unregisters the session
+                recv->shutdownConnection();
+            } else {
+                closeSocketAsync();
+            }
+            return nullptr;
+        }
         m_messageBuffer.writeSimple(data, size);
         return nullptr;
     }

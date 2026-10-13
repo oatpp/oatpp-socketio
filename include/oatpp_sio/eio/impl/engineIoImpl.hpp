@@ -9,6 +9,7 @@
 
 #include "oatpp_sio/eio/engineIo.hpp"
 #include "oatpp_sio/eio/connection.hpp"
+#include "oatpp_sio/eio/packet.hpp"
 
 #include "oatpp_sio/webapi/dto/eioDto.hpp"
 
@@ -59,8 +60,6 @@ class EngineImpl : public Engine
     void printSockets() const;
 
    private:
-    std::string pktEncode(EioPacketType pkt, const std::string& msg);
-
     // void pingAsync(EioConnection::Ptr conn);
 };
 
